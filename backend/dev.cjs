@@ -40,9 +40,18 @@ if (check.status !== 0) {
   }
 }
 
-// ---------- 3. start the Flask app ----------
-console.log('🚀 Starting AquaAllot backend on http://localhost:5000 ...\n');
-const server = spawn(pyCmd, [...pyArgs, path.join(here, 'app.py')], { cwd: here, env, stdio: 'inherit' });
+// ---------- 3. start the Flask app (or a tool) ----------
+//   node dev.cjs          → backend
+//   node dev.cjs check    → network check (which MQTT broker/port works here)
+//   node dev.cjs fake     → fake ESP32 (pass extra options after it, e.g. --demo)
+const [mode, ...extra] = process.argv.slice(2);
+const scripts = {
+  check: path.join(here, '..', 'tools', 'check_network.py'),
+  fake: path.join(here, '..', 'tools', 'fake_esp32.py')
+};
+const script = scripts[mode] || path.join(here, 'app.py');
+if (!scripts[mode]) console.log('🚀 Starting AquaAllot backend on http://localhost:5000 ...\n');
+const server = spawn(pyCmd, [...pyArgs, script, ...extra], { cwd: here, env, stdio: 'inherit' });
 
 server.on('exit', (code) => process.exit(code ?? 0));
 process.on('SIGINT', () => server.kill('SIGINT'));

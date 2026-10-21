@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node dev.cjs",
     "start": "node dev.cjs",
-    "fake-esp32": "python ../tools/fake_esp32.py"
+    "check": "node dev.cjs check",
+    "fake-esp32": "node dev.cjs fake"
   }
 }

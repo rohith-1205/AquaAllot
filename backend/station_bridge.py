@@ -31,6 +31,7 @@ Every message is JSON with a "type" field:
 
 import json
 import logging
+import socket
 import threading
 import time
 import uuid
@@ -42,6 +43,7 @@ from services import ServiceError
 
 log = logging.getLogger("aquaallot.bridge")
 
+TLS_PORTS = (443, 8081, 8084, 8883, 8884)   # these broker ports need TLS (wss / mqtts)
 OFFLINE_AFTER_SECONDS = 15   # no message for this long -> station shown as offline
 MAX_EVENTS = 80              # size of the live event log shown on the dashboard
 
@@ -105,8 +107,14 @@ class StationBridge:
         block port 1883, so we fall back to MQTT over WebSockets (8000) and
         secure WebSockets (8884), which look like normal web traffic.
         """
-        preferred = (self.transport, self.port, self.port in (8883, 8884))
-        fallbacks = [("tcp", 1883, False), ("websockets", 8000, False), ("websockets", 8884, True)]
+        preferred = (self.transport, self.port, self.port in TLS_PORTS)
+        fallbacks = [
+            ("tcp", 1883, False),
+            ("websockets", 8000, False),
+            ("websockets", 8884, True),
+            ("websockets", 443, True),   # brokers that offer MQTT on the normal HTTPS port
+            ("websockets", 80, False),
+        ]
         return [preferred] + [o for o in fallbacks if o[:2] != preferred[:2]]
 
     def _connect_with(self, option):
@@ -146,11 +154,14 @@ class StationBridge:
             time.sleep(1)
             if self.ever_connected or time.time() - self.attempt_started < 8:
                 continue   # connected once: paho reconnects by itself
-            failed = f"{self.broker}:{self.port} ({self.transport})"
+            failed = f"{self.broker}:{self.port}"
+            reason = _why_unreachable(self.broker, self.port)
             self.option_index = (self.option_index + 1) % len(self.options)
-            log.warning("⚠ Could not reach %s - your network may block it. Trying another port...", failed)
+            log.warning("⚠ Could not reach %s (%s): %s. Trying another port...", failed, self.transport, reason)
+            if self.option_index == 0:
+                log.warning("⚠ No port worked. Run `npm run check` in the backend folder to find one that does.")
             self._connect_with(self.options[self.option_index])
-            self.last_error = f"Could not reach {failed}, trying port {self.port}"
+            self.last_error = f"{failed}: {reason}"
 
     def _on_connect(self, client, userdata, flags, reason_code, properties):
         if reason_code.is_failure:
@@ -454,6 +465,21 @@ class StationBridge:
             "time": datetime.now().strftime("%H:%M:%S"), "ts": time.time(),
             "stationId": station_id, "direction": direction, "type": msg_type, "text": text,
         })
+
+
+def _why_unreachable(host, port):
+    """Plain-words reason why the broker can't be reached (shown in the log + dashboard)."""
+    try:
+        socket.getaddrinfo(host, port)
+    except OSError:
+        return "DNS lookup failed (no internet, or the name is blocked)"
+    try:
+        with socket.create_connection((host, port), timeout=4):
+            return "port is open but the broker did not answer MQTT"
+    except socket.timeout:
+        return "connection timed out (blocked by firewall / network / antivirus)"
+    except OSError as error:
+        return f"connection failed ({error})"
 
 
 def _blank_live(station_id):
