@@ -42,7 +42,9 @@ export const ConnectionStrip = ({ backendOnline, mqtt, station }) => {
         ok={Boolean(mqtt?.connected)}
         okText="Connected"
         badText={mqtt?.enabled === false ? 'Disabled' : 'Connecting…'}
-        detail={mqtt ? `${mqtt.broker}:${mqtt.port}` : '—'}
+        detail={
+          !mqtt ? '—' : mqtt.connected ? `${mqtt.broker}:${mqtt.port} · ${mqtt.transport}` : mqtt.error || `trying ${mqtt.broker}:${mqtt.port}`
+        }
       />
       <StatusPill
         icon={espOnline ? Cpu : Wifi}

@@ -57,7 +57,10 @@ class StationBridge:
 
         self.lock = threading.RLock()
         self.client = None
+        self.mqtt = None
         self.connected = False
+        self.ever_connected = False
+        self.attempt_started = 0.0
         self.last_error = None
         self.events = deque(maxlen=MAX_EVENTS)
         self.live = {station_id: _blank_live(station_id) for station_id in stations}
@@ -90,29 +93,75 @@ class StationBridge:
             log.error(self.last_error)
             return
 
-        client_id = f"aquaallot-backend-{uuid.uuid4().hex[:6]}"
-        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id, transport=self.transport)
-        if self.transport == "websockets":
-            self.client.ws_set_options(path=self.ws_path)
-        self.client.on_connect = self._on_connect
-        self.client.on_disconnect = self._on_disconnect
-        self.client.on_message = self._on_message
-        self.client.reconnect_delay_set(min_delay=1, max_delay=10)
+        self.mqtt = mqtt
+        self.options = self._connection_options()
+        self.option_index = 0
+        self._connect_with(self.options[0])
+        threading.Thread(target=self._fallback_watchdog, daemon=True).start()
 
-        log.info("📡 Connecting to MQTT broker %s:%s (%s) ...", self.broker, self.port, self.transport)
-        self.client.connect_async(self.broker, self.port, keepalive=30)
-        self.client.loop_start()
+    def _connection_options(self):
+        """
+        Ways to reach the broker, tried in order. Many college/office networks
+        block port 1883, so we fall back to MQTT over WebSockets (8000) and
+        secure WebSockets (8884), which look like normal web traffic.
+        """
+        preferred = (self.transport, self.port, self.port in (8883, 8884))
+        fallbacks = [("tcp", 1883, False), ("websockets", 8000, False), ("websockets", 8884, True)]
+        return [preferred] + [o for o in fallbacks if o[:2] != preferred[:2]]
+
+    def _connect_with(self, option):
+        transport, port, use_tls = option
+        if self.client is not None:          # give up the previous attempt
+            self.client.loop_stop()
+            try:
+                self.client.disconnect()
+            except Exception:
+                pass
+
+        mqtt = self.mqtt
+        client_id = f"aquaallot-backend-{uuid.uuid4().hex[:6]}"
+        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id, transport=transport)
+        if transport == "websockets":
+            client.ws_set_options(path=self.ws_path)
+        if use_tls:
+            client.tls_set()
+        client.on_connect = self._on_connect
+        client.on_disconnect = self._on_disconnect
+        client.on_message = self._on_message
+        client.reconnect_delay_set(min_delay=1, max_delay=10)
+
+        self.client = client
+        self.transport, self.port = ("websockets (TLS)" if use_tls else transport), port
+        self.attempt_started = time.time()
+        self.ever_connected = False
+        self.last_error = None
+
+        log.info("📡 Connecting to MQTT broker %s:%s (%s) ...", self.broker, port, self.transport)
+        client.connect_async(self.broker, port, keepalive=30)
+        client.loop_start()
+
+    def _fallback_watchdog(self):
+        """If the broker can't be reached within 8 s, try the next way of connecting."""
+        while True:
+            time.sleep(1)
+            if self.ever_connected or time.time() - self.attempt_started < 8:
+                continue   # connected once: paho reconnects by itself
+            failed = f"{self.broker}:{self.port} ({self.transport})"
+            self.option_index = (self.option_index + 1) % len(self.options)
+            log.warning("⚠ Could not reach %s - your network may block it. Trying another port...", failed)
+            self._connect_with(self.options[self.option_index])
+            self.last_error = f"Could not reach {failed}, trying port {self.port}"
 
     def _on_connect(self, client, userdata, flags, reason_code, properties):
         if reason_code.is_failure:
             self.last_error = f"Broker refused connection: {reason_code}"
             log.error(self.last_error)
             return
-        self.connected, self.last_error = True, None
+        self.connected, self.ever_connected, self.last_error = True, True, None
         client.subscribe(f"{self.topic_root}/+/up")
         client.subscribe(f"{self.topic_root}/+/status")
-        log.info("✓ MQTT connected. Listening on %s/+/up", self.topic_root)
-        self._log(None, "system", "mqtt", f"Backend connected to MQTT broker {self.broker}")
+        log.info("✓ MQTT connected via %s:%s (%s). Listening on %s/+/up", self.broker, self.port, self.transport, self.topic_root)
+        self._log(None, "system", "mqtt", f"Backend connected to MQTT broker {self.broker}:{self.port} ({self.transport})")
 
     def _on_disconnect(self, client, userdata, flags, reason_code, properties):
         self.connected = False

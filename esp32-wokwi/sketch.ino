@@ -884,7 +884,14 @@ void keepCloudConnected() {
     return;
   }
 
+  static bool wasConnected = false;
   if (!mqtt.connected()) {
+    if (wasConnected) {
+      // Codes: -4 timeout, -3 connection lost, -2 connect failed, -1 disconnected
+      Serial.print("[MQTT] Connection lost, state=");
+      Serial.println(mqtt.state());
+      wasConnected = false;
+    }
     digitalWrite(STATUS_LED, (now / 500) % 2);
     if (now - lastMqttTry > 5000) {
       lastMqttTry = now;
@@ -893,6 +900,7 @@ void keepCloudConnected() {
     return;
   }
 
+  wasConnected = true;
   digitalWrite(STATUS_LED, HIGH);                          // solid = online
   mqtt.loop();
 
@@ -980,8 +988,8 @@ void setup() {
   mqtt.setServer(MQTT_BROKER, MQTT_PORT);
   mqtt.setCallback(onCloudMessage);
   mqtt.setBufferSize(512);
-  mqtt.setKeepAlive(15);
-  mqtt.setSocketTimeout(5);
+  mqtt.setKeepAlive(30);       // Wokwi's network is a bit slower than real WiFi
+  mqtt.setSocketTimeout(10);
 
   showHome();
 

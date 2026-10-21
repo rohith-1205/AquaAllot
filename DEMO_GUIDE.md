@@ -154,7 +154,7 @@ dashboard shows sample data with a yellow "Backend not reachable" bar.
 |---|---|
 | OLED stays on *WiFi: connecting…* | Wokwi needs a moment; make sure the diagram is the ESP32 DevKit one from this repo. |
 | OLED *Cloud: connecting..* forever | Broker busy: change `MQTT_BROKER` to `test.mosquitto.org` in **both** `sketch.ino` and `backend/.env`. |
-| Dashboard pill **MQTT broker: Connecting…** | Your network blocks port 1883 (common on college WiFi). Add to `backend/.env`: `MQTT_TRANSPORT=websockets` and `MQTT_PORT=8000`, restart the backend. (Wokwi itself can keep using 1883.) |
+| Dashboard pill **MQTT broker: Connecting…** | Your network blocks port 1883 (common on college WiFi). The backend now **switches automatically** to WebSockets (port 8000, then 8884) after ~8 s – watch terminal 1 for `✓ MQTT connected via ...`. Wokwi itself can keep using 1883. |
 | ESP32 online in Wokwi but **Offline** on dashboard | `TOPIC_ROOT` in `sketch.ino` ≠ `MQTT_TOPIC_ROOT` in the backend. |
 | OLED *NO SERVER REPLY* | The backend is not running or not connected to MQTT → check terminal 1. |
 | Razorpay popup does not open | Check internet + test keys in `backend/.env`. Use the **test payment** link as a fallback. |
