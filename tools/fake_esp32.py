@@ -7,11 +7,13 @@ esp32-wokwi/sketch.ino.
 
     python tools/fake_esp32.py              # interactive: type commands
     python tools/fake_esp32.py --demo       # runs the full demo story by itself
+                                            # (pays automatically when the backend has no Razorpay keys,
+                                            #  otherwise complete each Razorpay checkout on Live Station)
 
 Interactive commands:
     tap 01:02:03:04     tap a card (blue=01:02:03:04 green=11:22:33:44 yellow=55:66:77:88 red=AA:BB:CC:DD)
     1 / 2 / 5           choose litres
-    pay                 PAY button (wallet)
+    pay                 PAY button (opens Razorpay on the dashboard's Live Station page)
     anomaly             ANOMALY button
     leak                flow while the valve is closed
     ack                 acknowledge an alarm (PAY in alert state)
@@ -25,6 +27,7 @@ import time
 import uuid
 
 import paho.mqtt.client as mqtt
+import requests
 
 FLOW_LPM = 20.0  # same as the 150 Hz clock in diagram.json (150 / 450 * 60)
 
@@ -128,7 +131,7 @@ class FakeStation:
             self.send("ack")
             self.reset()
         else:
-            self.send("pay_wallet", order_id=self.order_id)
+            self.send("pay_request", order_id=self.order_id)
 
     def dispense(self):
         self.state, self.liters, self.stop_reason = "DISPENSING", 0.0, None
@@ -172,41 +175,54 @@ def wait_for(station, kind, timeout=15):
     raise TimeoutError(f"No '{kind}' reply within {timeout}s")
 
 
-def run_demo(station):
-    print("\n=== 1. Rohith (blue card) buys 1 L with the wallet ===")
+def pay_like_the_dashboard(station, api):
+    """
+    PAY was pressed → normally the Live Station page opens Razorpay. Without Razorpay
+    keys the backend accepts a simulated payment, so the demo can pay by itself.
+    """
+    station.pay()
+    wait_for(station, "payment_pending")
+    order_id = station.order_id
+    try:
+        requests.post(f"{api}/orders/{order_id}/checkout", json={}, timeout=10).raise_for_status()
+        confirm = requests.post(f"{api}/orders/{order_id}/confirm", json={}, timeout=10)
+        if confirm.ok:
+            print("   (simulated Razorpay payment – backend has no keys)")
+        else:
+            print("   👉 Complete the Razorpay checkout on the Live Station page…")
+    except requests.RequestException:
+        print("   👉 Complete the Razorpay checkout on the Live Station page…")
+    return wait_for(station, "payment_ok", timeout=180)
+
+
+def run_demo(station, api):
+    print("\n=== 1. Rohith (blue card) buys 1 L, pays with Razorpay ===")
     station.tap("01:02:03:04"); wait_for(station, "card_result")
     station.order(1); wait_for(station, "order_ready")
-    station.pay(); wait_for(station, "payment_ok"); wait_for(station, "finish_ok")
-    time.sleep(2); station.reset()
+    pay_like_the_dashboard(station, api); wait_for(station, "finish_ok")
+    time.sleep(1); station.reset()
 
-    print("\n=== 2. Deepankishor (green card) has a low wallet → wallet refused ===")
-    station.tap("11:22:33:44"); wait_for(station, "card_result")
-    station.order(2); wait_for(station, "order_ready")
-    station.pay(); wait_for(station, "payment_failed")
-    print("   (on the dashboard → Live Station: 'Top up with Razorpay & pay')")
-    time.sleep(2); station.send("cancel", order_id=station.order_id); station.reset()
-
-    print("\n=== 3. Sanjay (yellow card) takes 5 L → over-usage alert on the admin dashboard ===")
+    print("\n=== 2. Sanjay (yellow card) takes 5 L → over-usage alert on the admin dashboard ===")
     station.tap("55:66:77:88"); wait_for(station, "card_result")
     station.order(5); ready = wait_for(station, "order_ready")
     print("   warning shown on OLED:", ready.get("warning") or "(none)")
-    station.pay(); wait_for(station, "payment_ok"); reply = wait_for(station, "finish_ok", timeout=30)
-    print(f"   charged ₹{reply.get('charged')}, wallet now ₹{reply.get('balance')}")
+    pay_like_the_dashboard(station, api); reply = wait_for(station, "finish_ok", timeout=30)
+    print(f"   charged ₹{reply.get('charged')}")
     time.sleep(1); station.reset()
 
-    print("\n=== 4. Rohith 5 L, admin presses Emergency stop → unused litres refunded ===")
+    print("\n=== 3. Rohith 5 L, stopped part-way → unused litres refunded through Razorpay ===")
     station.tap("01:02:03:04"); wait_for(station, "card_result")
     station.order(5); wait_for(station, "order_ready")
-    station.pay(); wait_for(station, "payment_ok")
+    pay_like_the_dashboard(station, api)
     time.sleep(3.5); station.stop_reason = "Stopped by admin (fake)"
     reply = wait_for(station, "finish_ok", timeout=10)
-    print(f"   charged ₹{reply.get('charged')}, refunded ₹{reply.get('refund')}")
+    print(f"   charged ₹{reply.get('charged')}, refund ₹{reply.get('refund')} sent to Razorpay")
     time.sleep(1); station.reset()
 
-    print("\n=== 5. Unknown red card ===")
+    print("\n=== 4. Unknown red card ===")
     station.tap("AA:BB:CC:DD"); wait_for(station, "card_result")
     station.reset()
-    print("\n✓ Demo finished. Check the dashboard: transactions, alerts and the Live Station event log.")
+    print("\n✓ Demo finished. Check the dashboard: Payments (refunds), Alerts and the Live Station event log.")
 
 
 def main():
@@ -217,13 +233,14 @@ def main():
     parser.add_argument("--root", default="aquaallot-demo-rohith1205", help="must match MQTT_TOPIC_ROOT")
     parser.add_argument("--station", default="STN-001")
     parser.add_argument("--demo", action="store_true", help="run the demo story automatically")
+    parser.add_argument("--api", default="http://localhost:5000/api", help="backend URL (used by --demo to pay)")
     args = parser.parse_args()
 
     station = FakeStation(args.broker, args.port, args.root, args.station, args.transport)
     time.sleep(1.5)
 
     if args.demo:
-        run_demo(station)
+        run_demo(station, args.api)
         time.sleep(1)
         return
 

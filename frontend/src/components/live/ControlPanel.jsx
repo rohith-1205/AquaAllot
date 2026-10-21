@@ -79,7 +79,7 @@ export const ControlPanel = ({ station }) => {
           >
             {users.map((u) => (
               <option key={u.id} value={u.id}>
-                {u.name} · ₹{Number(u.balance).toFixed(0)} · {u.status}
+                {u.name} · today {u.todayUsage} L · {u.status}
               </option>
             ))}
           </select>

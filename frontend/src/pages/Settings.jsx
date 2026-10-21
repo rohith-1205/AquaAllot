@@ -37,7 +37,7 @@ export const Settings = () => {
   };
 
   const handleResetDemo = async () => {
-    if (!window.confirm('Reset all users, wallets, transactions and alerts to the demo data?')) return;
+    if (!window.confirm('Reset all users, transactions and alerts to the demo data?')) return;
     try {
       await resetDemoData();
       toast.success('Demo data restored');
@@ -89,10 +89,10 @@ export const Settings = () => {
 
       <Card icon={Shield} color="text-indigo-600" title="Payments (Razorpay test mode)">
         <ul className="text-xs text-slate-600 space-y-1.5 list-disc pl-5">
-          <li>Water is always paid from the student's prepaid wallet (PAY button in Wokwi or “Pay from wallet”).</li>
-          <li>Money enters a wallet only through a Razorpay top-up; the backend verifies the signature with the key secret.</li>
+          <li>Every order is paid with Razorpay: “Pay with Razorpay” on the dashboard, or PAY in Wokwi (opens the checkout on Live Station).</li>
+          <li>The backend verifies every payment signature with the key secret before the valve opens.</li>
           <li>Keys live only in <code className="px-1 rounded bg-slate-100">backend/.env</code> (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET) – never in the browser.</li>
-          <li>Unused litres and stuck orders are refunded to the wallet automatically.</li>
+          <li>Unused litres and stuck orders are refunded automatically through Razorpay's refund API.</li>
         </ul>
       </Card>
 
@@ -117,7 +117,7 @@ export const Settings = () => {
       </Card>
 
       <Card icon={RotateCcw} color="text-rose-600" title="Demo data">
-        <p className="text-xs text-slate-500">Restores the demo students, wallets, 30-day history and clears orders, top-ups and alerts.</p>
+        <p className="text-xs text-slate-500">Restores the demo students and 30-day history and clears orders and alerts.</p>
         <Button type="button" variant="outline" icon={RotateCcw} onClick={handleResetDemo}>
           Reset demo data
         </Button>

@@ -7,8 +7,8 @@ import { timeAgo } from '../../utils/format';
 
 const pageTitles = {
   '/dashboard': { title: 'Dashboard Overview', subtitle: "Here's what's happening across your AquaAllot system today." },
-  '/users': { title: 'User Management', subtitle: 'Monitor user balances, RFID tags, and daily consumption.' },
-  '/dispensing': { title: 'New Water Order', subtitle: 'Send an order to the Wokwi station and pay from the wallet.' },
+  '/users': { title: 'User Management', subtitle: 'Students, RFID cards and daily consumption.' },
+  '/dispensing': { title: 'New Water Order', subtitle: 'Send an order to the Wokwi station and pay with Razorpay.' },
   '/payments': { title: 'Payment History & Audit', subtitle: 'Track Razorpay digital transactions and revenue logs.' },
   '/analytics': { title: 'Consumption Analytics', subtitle: 'Explore water usage trends, peak demand, and station metrics.' },
   '/alerts': { title: 'Anomalies & System Alerts', subtitle: 'Statistical 3-Sigma anomaly detection & real-time warnings.' },

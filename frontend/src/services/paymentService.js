@@ -21,7 +21,7 @@ export const initializeRazorpayPayment = async ({
   keyId,
   userName,
   userEmail,
-  description = 'AquaAllot wallet top-up',
+  description = 'AquaAllot water order',
   onSuccess,
   onFailure
 }) => {

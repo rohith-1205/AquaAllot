@@ -1,11 +1,7 @@
-import React, { useState } from 'react';
-import toast from 'react-hot-toast';
-import { Wallet, Loader2, CreditCard, CheckCircle2, AlertTriangle, Undo2 } from 'lucide-react';
-import { api } from '../../services/api';
-import { useWalletTopup } from '../../hooks/useWalletTopup';
+import React, { useEffect, useRef } from 'react';
+import { Loader2, CreditCard, CheckCircle2, AlertTriangle, Undo2, Hand } from 'lucide-react';
+import { useRazorpayCheckout } from '../../hooks/useRazorpayCheckout';
 import { rupees } from '../../utils/format';
-
-const MIN_TOPUP = 10;
 
 const STATUS_STYLE = {
   pending: 'bg-amber-400 text-white',
@@ -17,17 +13,24 @@ const STATUS_STYLE = {
 };
 
 /**
- * Pay for the order waiting at the Wokwi station – always from the student's wallet.
- *   • wallet has enough → "Pay from wallet"          (same as pressing PAY in Wokwi)
- *   • wallet too low    → "Top up with Razorpay & pay" (adds the missing money, then pays)
- * After the valve closes it shows what was charged and what went back to the wallet.
+ * Pay for the order waiting at the Wokwi station – Razorpay only.
+ *   • "Pay with Razorpay" button here, or
+ *   • PAY button in Wokwi → this panel opens the Razorpay checkout by itself.
+ * After the valve closes it shows what was charged and what is refunded through Razorpay.
  */
-export const PaymentPanel = ({ station, dark = false }) => {
-  const [paying, setPaying] = useState(false);
-  const { topUp, busy: toppingUp } = useWalletTopup();
+export const PaymentPanel = ({ station, dark = false, autoOpen = true }) => {
+  const { payOrder, busy } = useRazorpayCheckout();
+  const handledRequest = useRef(null);
   const order = station?.order;
-  const user = station?.user;
-  const busy = paying || toppingUp;
+  const waitingForPayment = station?.state === 'AWAITING_PAYMENT' && order?.status === 'pending';
+
+  // PAY pressed in Wokwi → open the Razorpay checkout automatically (once per press)
+  useEffect(() => {
+    const request = order?.payRequestedAt;
+    if (!autoOpen || !waitingForPayment || !request || handledRequest.current === request || busy) return;
+    handledRequest.current = request;
+    payOrder(order);
+  }, [order?.payRequestedAt, waitingForPayment, autoOpen]);
 
   if (!order) {
     return (
@@ -36,27 +39,6 @@ export const PaymentPanel = ({ station, dark = false }) => {
       </div>
     );
   }
-
-  const balance = Number(user?.balance || 0);
-  const amount = Number(order.amount || 0);
-  const walletEnough = balance >= amount;
-  const missing = Math.max(MIN_TOPUP, Math.ceil(amount - balance));
-  const waitingForPayment = station?.state === 'AWAITING_PAYMENT' && order.status === 'pending';
-
-  const payFromWallet = async () => {
-    setPaying(true);
-    try {
-      await api.payOrderFromWallet(order.id);
-      toast.success('Paid from wallet – valve opening in Wokwi! 💧');
-    } catch (err) {
-      toast.error(err.message);
-    }
-    setPaying(false);
-  };
-
-  const topUpAndPay = async () => {
-    if (await topUp(user, missing)) await payFromWallet();
-  };
 
   return (
     <div className="space-y-3">
@@ -70,9 +52,10 @@ export const PaymentPanel = ({ station, dark = false }) => {
         </div>
         <div className="mt-2 flex items-end justify-between gap-2">
           <div>
-            <p className={`text-3xl font-extrabold font-['Outfit'] ${dark ? 'text-white' : 'text-slate-900'}`}>{rupees(amount)}</p>
+            <p className={`text-3xl font-extrabold font-['Outfit'] ${dark ? 'text-white' : 'text-slate-900'}`}>{rupees(order.amount)}</p>
             <p className={`text-xs font-semibold ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
-              {order.liters} L for {order.userName} · wallet {rupees(balance)}
+              {order.liters} L for {order.userName}
+              {order.paymentMethod && ` · paid by ${order.paymentMethod}`}
             </p>
           </div>
           {['completed', 'stopped', 'failed'].includes(order.status) && (
@@ -82,7 +65,7 @@ export const PaymentPanel = ({ station, dark = false }) => {
               </p>
               {order.refund > 0 && (
                 <p className="text-violet-500 flex items-center gap-1 justify-end">
-                  <Undo2 className="w-3.5 h-3.5" /> {rupees(order.refund)} back to wallet
+                  <Undo2 className="w-3.5 h-3.5" /> {rupees(order.refund)} refunded via Razorpay
                 </p>
               )}
             </div>
@@ -97,28 +80,21 @@ export const PaymentPanel = ({ station, dark = false }) => {
 
       {waitingForPayment && (
         <>
-          {walletEnough ? (
-            <button
-              onClick={payFromWallet}
-              disabled={busy}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-extrabold text-white bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 shadow-lg shadow-emerald-500/30 hover:scale-[1.01] active:scale-[0.99] transition-transform cursor-pointer disabled:opacity-60"
-            >
-              {busy ? <Loader2 className="w-5 h-5 animate-spin" /> : <Wallet className="w-5 h-5" />}
-              Pay {rupees(amount)} from wallet
-            </button>
-          ) : (
-            <button
-              onClick={topUpAndPay}
-              disabled={busy}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-extrabold text-white bg-gradient-to-r from-indigo-600 via-sky-600 to-cyan-500 shadow-lg shadow-sky-500/30 hover:scale-[1.01] active:scale-[0.99] transition-transform cursor-pointer disabled:opacity-60"
-            >
-              {busy ? <Loader2 className="w-5 h-5 animate-spin" /> : <CreditCard className="w-5 h-5" />}
-              Top up {rupees(missing)} with Razorpay & pay
-            </button>
+          {order.payRequestedAt && (
+            <p className="flex items-center gap-1.5 text-[11px] font-bold text-sky-500 animate-pulse">
+              <Hand className="w-3.5 h-3.5" /> PAY pressed in Wokwi – complete the Razorpay checkout
+            </p>
           )}
-          <p className={`text-[11px] flex items-center gap-1 ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
-            <Wallet className="w-3.5 h-3.5" />
-            {walletEnough ? 'or press PAY in Wokwi – same wallet, same rules' : `Wallet has ${rupees(balance)}, order needs ${rupees(amount)}`}
+          <button
+            onClick={() => payOrder(order)}
+            disabled={busy}
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-extrabold text-white bg-gradient-to-r from-indigo-600 via-sky-600 to-cyan-500 shadow-lg shadow-sky-500/30 hover:scale-[1.01] active:scale-[0.99] transition-transform cursor-pointer disabled:opacity-60"
+          >
+            {busy ? <Loader2 className="w-5 h-5 animate-spin" /> : <CreditCard className="w-5 h-5" />}
+            Pay {rupees(order.amount)} with Razorpay
+          </button>
+          <p className={`text-[11px] ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
+            or press <b>PAY</b> in Wokwi – the checkout opens here automatically. Unused litres are refunded.
           </p>
         </>
       )}

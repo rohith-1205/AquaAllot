@@ -187,7 +187,7 @@ export const Dashboard = () => {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-base font-bold text-slate-900 font-['Outfit']">Revenue (last 7 days)</h3>
-              <p className="text-xs text-slate-500">Wallet charges for water (₹)</p>
+              <p className="text-xs text-slate-500">Razorpay payments for water, after refunds (₹)</p>
             </div>
             <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
               <IndianRupee className="w-4 h-4" />
@@ -213,7 +213,7 @@ export const Dashboard = () => {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-base font-bold text-slate-900 font-['Outfit']">Recent transactions</h3>
-              <p className="text-xs text-slate-500">Water bought from the prepaid wallet</p>
+              <p className="text-xs text-slate-500">Water orders paid with Razorpay</p>
             </div>
             <Link to="/payments" className="text-xs font-semibold text-sky-600 hover:underline">
               View all

@@ -34,18 +34,24 @@ def fresh_store():
     return store
 
 
-class WalletAndOrders(unittest.TestCase):
+class PaymentsAndRefunds(unittest.TestCase):
+    """Razorpay-only payments: paid in full, unused litres refunded through Razorpay."""
+
     def setUp(self):
         self.store = fresh_store()
-        self.rohith = self.store.find_one("users", id="USR001")       # ₹150
+        self.rohith = self.store.find_one("users", id="USR001")
+        self.sent_refunds = []
 
-    def order_and_pay(self, user_id="USR001", liters=2):
-        user = self.store.find_one("users", id=user_id)
-        order = services.create_order(self.store, user, liters, STATION, source="esp32")
-        return services.pay_order(self.store, order["id"], via="test")
+    def fake_razorpay_refund(self, payment_id, amount):
+        self.sent_refunds.append((payment_id, amount))
+        return f"rfnd_{len(self.sent_refunds)}"
 
-    def balance(self, user_id="USR001"):
-        return self.store.find_one("users", id=user_id)["balance"]
+    def order_and_pay(self, liters=2):
+        order = services.create_order(self.store, self.rohith, liters, STATION, source="esp32")
+        return services.pay_order(self.store, order["id"], "pay_test_1", "order_test_1")[0]
+
+    def txn(self, order):
+        return self.store.find_one("transactions", id=order["txnId"])
 
     def test_card_check(self):
         self.assertEqual(services.check_card(self.store, "01020304")["name"], "Rohith")
@@ -54,83 +60,83 @@ class WalletAndOrders(unittest.TestCase):
         with self.assertRaisesRegex(ServiceError, "suspended"):
             services.check_card(self.store, "C0:FF:EE:99")
 
-    def test_paying_reserves_money_from_wallet(self):
-        order, user = self.order_and_pay(liters=2)
+    def test_users_have_no_wallet(self):
+        self.assertNotIn("balance", self.rohith)
+
+    def test_pay_request_marks_order(self):
+        order = services.create_order(self.store, self.rohith, 1, STATION, source="esp32")
+        order = services.request_payment(self.store, order["id"])
+        self.assertIsNotNone(order["payRequestedAt"])
+        self.assertEqual(order["status"], "pending")          # nothing is paid by pressing PAY
+
+    def test_razorpay_payment_creates_transaction(self):
+        order = self.order_and_pay(liters=2)
         self.assertEqual(order["status"], "paid")
-        self.assertEqual(self.balance(), 150 - 10)
-
-    def test_low_wallet_is_refused(self):
-        with self.assertRaisesRegex(ServiceError, "Low wallet balance"):
-            self.order_and_pay(user_id="USR002", liters=2)              # Deepankishor has ₹8
-        self.assertEqual(self.balance("USR002"), 8)
-
-    def test_full_dispense_charges_everything(self):
-        order, _ = self.order_and_pay(liters=2)
-        result = services.finish_order(self.store, order["id"], 2.0, "done")
-        self.assertEqual((result["charged"], result["refund"]), (10, 0))
-        self.assertEqual(self.balance(), 140)
-        txn = self.store.find_one("transactions", id=order["txnId"])
-        self.assertEqual((txn["dispensingStatus"], txn["amount"]), ("Completed", 10))
-
-    def test_stopped_dispense_refunds_unused_litres(self):
-        order, _ = self.order_and_pay(liters=5)                       # ₹25 reserved
-        result = services.finish_order(self.store, order["id"], 1.0, "stopped", "Stopped by admin")
-        self.assertEqual((result["charged"], result["refund"]), (5, 20))
-        self.assertEqual(self.balance(), 150 - 5)
-        txn = self.store.find_one("transactions", id=order["txnId"])
-        self.assertEqual(txn["paymentStatus"], "Partly refunded")
-
-    def test_finishing_twice_does_not_charge_twice(self):
-        order, _ = self.order_and_pay(liters=1)
-        services.finish_order(self.store, order["id"], 1.0)
-        services.finish_order(self.store, order["id"], 1.0)
-        self.assertEqual(self.balance(), 145)
+        txn = self.txn(order)
+        self.assertEqual((txn["amount"], txn["paymentMethod"], txn["razorpayPaymentId"]), (10, "Razorpay", "pay_test_1"))
 
     def test_double_payment_is_refused(self):
-        order, _ = self.order_and_pay(liters=1)
+        order = self.order_and_pay(liters=1)
         with self.assertRaisesRegex(ServiceError, "Order is paid"):
-            services.pay_order(self.store, order["id"], via="test")
-        self.assertEqual(self.balance(), 145)
+            services.pay_order(self.store, order["id"], "pay_test_2", "order_test_1")
 
-    def test_stuck_paid_order_is_refunded(self):
-        order, _ = self.order_and_pay(liters=2)
+    def test_full_dispense_has_no_refund(self):
+        order = self.order_and_pay(liters=2)
+        result = services.finish_order(self.store, order["id"], 2.0, "done")
+        self.assertEqual((result["charged"], result["refund"]), (10, 0))
+        self.assertIsNone(self.txn(order)["refundStatus"])
+
+    def test_stopped_dispense_refunds_unused_litres_via_razorpay(self):
+        order = self.order_and_pay(liters=5)                          # ₹25 paid
+        result = services.finish_order(self.store, order["id"], 1.0, "stopped", "Stopped by admin")
+        self.assertEqual((result["charged"], result["refund"]), (5, 20))
+        self.assertEqual(self.txn(order)["refundStatus"], "pending")
+        services.process_refunds(self.store, self.fake_razorpay_refund)
+        self.assertEqual(self.sent_refunds, [("pay_test_1", 20)])
+        txn = self.txn(order)
+        self.assertEqual((txn["refundStatus"], txn["refundId"], txn["paymentStatus"]), ("processed", "rfnd_1", "Partly refunded"))
+
+    def test_refund_is_retried_then_alerts(self):
+        order = self.order_and_pay(liters=2)
+        services.finish_order(self.store, order["id"], 0.0, "anomaly", "No water flow")
+
+        def broken(payment_id, amount):
+            raise RuntimeError("Razorpay down")
+
+        for _ in range(services.MAX_REFUND_ATTEMPTS):
+            services.process_refunds(self.store, broken)
+        self.assertEqual(self.txn(order)["refundStatus"], "failed")
+        self.assertIn("Refund Failed", [a["title"] for a in self.store.all("alerts")])
+
+    def test_finishing_twice_does_not_refund_twice(self):
+        order = self.order_and_pay(liters=2)
+        services.finish_order(self.store, order["id"], 1.0, "stopped")
+        services.finish_order(self.store, order["id"], 1.0, "stopped")
+        services.process_refunds(self.store, self.fake_razorpay_refund)
+        services.process_refunds(self.store, self.fake_razorpay_refund)
+        self.assertEqual(len(self.sent_refunds), 1)
+
+    def test_stuck_paid_order_is_fully_refunded(self):
+        order = self.order_and_pay(liters=2)
         old = (services.now() - timedelta(seconds=services.STUCK_ORDER_SECONDS + 5)).isoformat()
         self.store.update("orders", {"id": order["id"]}, set={"paidAt": old})
-        refunded = services.housekeeping(self.store, last_activity={})
-        self.assertEqual([o["id"] for o in refunded], [order["id"]])
-        self.assertEqual(self.balance(), 150)
-        self.assertEqual(self.store.find_one("orders", id=order["id"])["status"], "failed")
+        failed = services.housekeeping(self.store, {}, self.fake_razorpay_refund)
+        self.assertEqual([o["id"] for o in failed], [order["id"]])
+        self.assertEqual(self.sent_refunds, [("pay_test_1", 10)])
+        self.assertEqual(self.txn(order)["paymentStatus"], "Refunded")
 
     def test_order_with_recent_flow_is_not_refunded(self):
-        order, _ = self.order_and_pay(liters=2)
+        order = self.order_and_pay(liters=2)
         old = (services.now() - timedelta(seconds=services.STUCK_ORDER_SECONDS + 5)).isoformat()
         self.store.update("orders", {"id": order["id"]}, set={"paidAt": old})
-        refunded = services.housekeeping(self.store, last_activity={order["id"]: services.now().timestamp()})
-        self.assertEqual(refunded, [])
+        self.assertEqual(services.housekeeping(self.store, {order["id"]: services.now().timestamp()}), [])
 
     def test_old_unpaid_orders_expire(self):
         order = services.create_order(self.store, self.rohith, 1, STATION, source="esp32")
         old = (services.now() - timedelta(minutes=services.PENDING_ORDER_MINUTES + 1)).isoformat()
         self.store.update("orders", {"id": order["id"]}, set={"createdAt": old})
-        services.housekeeping(self.store, last_activity={})
+        services.housekeeping(self.store, {})
         self.assertEqual(self.store.find_one("orders", id=order["id"])["status"], "cancelled")
-
-
-class TopUps(unittest.TestCase):
-    def setUp(self):
-        self.store = fresh_store()
-
-    def test_topup_adds_money_once(self):
-        topup = services.create_topup(self.store, "USR002", 50, "order_test")
-        services.complete_topup(self.store, topup["id"], "pay_1", "Razorpay")
-        self.assertEqual(self.store.find_one("users", id="USR002")["balance"], 58)
-        with self.assertRaisesRegex(ServiceError, "already used"):
-            services.complete_topup(self.store, topup["id"], "pay_1", "Razorpay")
-        self.assertEqual(self.store.find_one("users", id="USR002")["balance"], 58)
-
-    def test_topup_limits(self):
-        with self.assertRaises(ServiceError):
-            services.create_topup(self.store, "USR002", 1, "order_test")
 
     def test_razorpay_signature(self):
         with mock.patch("payments.razorpay_keys", return_value=("rzp_test_x", "secret")):
@@ -138,6 +144,10 @@ class TopUps(unittest.TestCase):
             good = hmac.new(b"secret", b"order_1|pay_1", hashlib.sha256).hexdigest()
             self.assertTrue(payments.signature_is_valid("order_1", "pay_1", good))
             self.assertFalse(payments.signature_is_valid("order_1", "pay_1", "forged"))
+
+    def test_simulated_payment_gets_simulated_refund(self):
+        import payments
+        self.assertTrue(payments.refund_payment("sim_PAY-1", 5).startswith("sim_rfnd_"))
 
 
 class OverUsage(unittest.TestCase):
@@ -194,7 +204,7 @@ class OfflineSalesAndAnalytics(unittest.TestCase):
     def test_analytics_counts_today(self):
         rohith = self.store.find_one("users", id="USR001")
         order = services.create_order(self.store, rohith, 2, STATION, source="esp32")
-        services.pay_order(self.store, order["id"], via="test")
+        services.pay_order(self.store, order["id"], "pay_x", "order_x")
         services.finish_order(self.store, order["id"], 2.0)
         data = services.analytics(self.store)
         self.assertEqual(data["kpis"]["dispensedToday"], 2.0)

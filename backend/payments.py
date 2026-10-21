@@ -1,5 +1,6 @@
 """
-payments.py - Razorpay helpers (test mode).
+payments.py - Razorpay helpers (test mode): create order, verify signature,
+capture and refund payments.
 
 We call the Razorpay REST API directly with `requests`, so no extra SDK
 is needed. Keys are read from backend/.env on every call, so you can
@@ -85,3 +86,41 @@ def signature_is_valid(razorpay_order_id, razorpay_payment_id, razorpay_signatur
         hashlib.sha256,
     ).hexdigest()
     return hmac.compare_digest(expected, razorpay_signature)
+
+
+RAZORPAY_PAYMENTS_URL = "https://api.razorpay.com/v1/payments"
+
+
+def ensure_captured(payment_id, amount_rupees):
+    """
+    Razorpay may only *authorize* a payment. Refunds need a *captured* payment,
+    so capture it right after verification (no-op if it is already captured).
+    """
+    if not has_real_keys() or not payment_id:
+        return
+    keys = razorpay_keys()
+    payment = requests.get(f"{RAZORPAY_PAYMENTS_URL}/{payment_id}", auth=keys, timeout=10).json()
+    if payment.get("status") == "authorized":
+        response = requests.post(
+            f"{RAZORPAY_PAYMENTS_URL}/{payment_id}/capture", auth=keys, timeout=10,
+            json={"amount": int(round(float(amount_rupees) * 100)), "currency": "INR"},
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(f"Razorpay capture error {response.status_code}: {response.text[:200]}")
+        log.info("💳 Payment %s captured", payment_id)
+
+
+def refund_payment(payment_id, amount_rupees):
+    """
+    Refund part (or all) of a Razorpay payment. Returns the refund id.
+    Simulated payments (no Razorpay keys) get a simulated refund.
+    """
+    if not has_real_keys() or not payment_id or str(payment_id).startswith("sim_"):
+        return f"sim_rfnd_{uuid.uuid4().hex[:10]}"
+    response = requests.post(
+        f"{RAZORPAY_PAYMENTS_URL}/{payment_id}/refund", auth=razorpay_keys(), timeout=10,
+        json={"amount": int(round(float(amount_rupees) * 100)), "notes": {"reason": "Water not dispensed"}},
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"Razorpay refund error {response.status_code}: {response.text[:200]}")
+    return response.json()["id"]

@@ -17,11 +17,12 @@ Every message is JSON with a "type" field:
 
     ESP32 -> backend (up)                 backend -> ESP32 (down)
     -------------------------------       -----------------------------------------
-    hello      ESP32 connected            card_result     card ok? + user + wallet
+    hello      ESP32 connected            card_result     card ok? + user name
     heartbeat  every 5 s                  order_ready     order id + amount to pay
     card       RFID card tapped           order_failed    reason
     order      1/2/5 L button pressed     payment_ok      open the valve!
-    pay_wallet PAY button pressed         payment_failed  reason (e.g. low balance)
+    pay_request PAY pressed → Razorpay   payment_pending Razorpay opened on the dashboard
+                                          payment_failed  reason
     progress   litres so far (every 1 s)  finish_ok       saved + charged / refund
     complete   valve closed, final litres stop            emergency stop from dashboard
     anomaly    leak / manual anomaly      reset           go back to the home screen
@@ -39,6 +40,7 @@ import uuid
 from collections import deque
 from datetime import datetime
 
+import payments
 import services
 from services import ServiceError
 
@@ -74,7 +76,7 @@ class StationBridge:
             "heartbeat": self._on_heartbeat,
             "card": self._on_card,
             "order": self._on_order,
-            "pay_wallet": self._on_pay_wallet,
+            "pay_request": self._on_pay_request,
             "cancel": self._on_cancel,
             "progress": self._on_progress,
             "complete": self._on_complete,
@@ -94,9 +96,9 @@ class StationBridge:
                 time.sleep(every_seconds)
                 try:
                     with self.lock:
-                        for order in services.housekeeping(self.store, self.last_activity):
+                        for order in services.housekeeping(self.store, self.last_activity, payments.refund_payment):
                             self._log(order["stationId"], "system", "refund",
-                                      f"💸 Order {order['id']} never dispensed → ₹{order['amount']:g} refunded to {order['userName']}")
+                                      f"💸 Order {order['id']} never dispensed → ₹{order['amount']:g} refund sent to Razorpay for {order['userName']}")
                             live = self._live(order["stationId"])
                             if live.get("order") and live["order"]["id"] == order["id"]:
                                 live.update(order=_order_view(order), alert="Order refunded (no water flow)")
@@ -281,8 +283,8 @@ class StationBridge:
         live["user"] = services.public_user(user)
         live["order"] = None
         self.send(station_id, "card_result", ok=True, uid=uid, user_id=user["id"], name=user["name"],
-                  balance=round(float(user["balance"]), 2), price=services.water_price(self.store))
-        self._log(station_id, "down", "card_result", f"Welcome {user['name']} (wallet ₹{user['balance']:.0f})")
+                  price=services.water_price(self.store))
+        self._log(station_id, "down", "card_result", f"Welcome {user['name']}")
 
     def _on_order(self, station_id, data):
         self._log(station_id, "up", "order", f"{data.get('liters')} L selected")
@@ -297,16 +299,19 @@ class StationBridge:
             return
         self._announce_order(station_id, order, user, remote=False)
 
-    def _on_pay_wallet(self, station_id, data):
+    def _on_pay_request(self, station_id, data):
+        """PAY pressed in Wokwi → the Live Station page opens the Razorpay checkout for this order."""
         order_id = data.get("order_id")
-        self._log(station_id, "up", "pay_wallet", f"PAY button: wallet payment for {order_id}")
+        self._log(station_id, "up", "pay_request", f"PAY button pressed for {order_id} → open Razorpay on the dashboard")
         try:
-            order, user = services.pay_order(self.store, order_id, via="Station PAY button")
+            order = services.request_payment(self.store, order_id)
         except ServiceError as error:
             self.send(station_id, "payment_failed", order_id=order_id, reason=str(error))
-            self._log(station_id, "down", "payment_failed", f"Wallet payment failed: {error}")
+            self._log(station_id, "down", "payment_failed", str(error))
             return
-        self.payment_confirmed(order, user, via="Station PAY button")
+        self._live(station_id)["order"] = _order_view(order)
+        self.send(station_id, "payment_pending", order_id=order_id)
+        self._log(station_id, "down", "payment_pending", "Waiting for the Razorpay payment on the dashboard")
 
     def _on_cancel(self, station_id, data):
         services.cancel_order(self.store, data.get("order_id"))
@@ -345,9 +350,8 @@ class StationBridge:
         live["user"] = services.public_user(outcome["user"])
         self.last_activity.pop(order_id, None)
         self.send(station_id, "finish_ok", order_id=order_id, txn_id=outcome["order"].get("txnId"),
-                  liters=round(liters, 2), charged=outcome["charged"], refund=outcome["refund"],
-                  balance=services.money(outcome["user"]["balance"]))
-        refund_text = f", ₹{outcome['refund']:g} refunded" if outcome["refund"] else ""
+                  liters=round(liters, 2), charged=outcome["charged"], refund=outcome["refund"])
+        refund_text = f", ₹{outcome['refund']:g} refund sent to Razorpay" if outcome["refund"] else ""
         self._log(station_id, "down", "finish_ok",
                   f"Saved {outcome['order'].get('txnId')}: charged ₹{outcome['charged']:g}{refund_text}")
 
@@ -376,18 +380,17 @@ class StationBridge:
     #   Actions from the dashboard
     # =================================================================
 
-    def payment_confirmed(self, order, user, via="Station PAY button"):
-        """Wallet was charged → tell the ESP32 to open the valve."""
+    def payment_confirmed(self, order, user):
+        """Razorpay payment verified → tell the ESP32 to open the valve."""
         station_id = order["stationId"]
         with self.lock:
             live = self._live(station_id)
             live["order"] = _order_view(order)
             live["user"] = services.public_user(user)
             self.last_activity[order["id"]] = time.time()
-        self.send(station_id, "payment_ok", order_id=order["id"], method="Wallet",
-                  balance=services.money(user["balance"]))
+        self.send(station_id, "payment_ok", order_id=order["id"], method="Razorpay")
         self._log(station_id, "down", "payment_ok",
-                  f"₹{order['amount']:g} taken from wallet ({via}) → open valve. Wallet now ₹{user['balance']:g}")
+                  f"₹{order['amount']:g} paid with {order.get('paymentMethod', 'Razorpay')} → open valve")
 
     def command(self, station_id, action, **params):
         """Dashboard buttons: tap_card, start_order, stop, reset."""
@@ -484,10 +487,8 @@ class StationBridge:
         live["order"] = _order_view(order)
         live["target"] = order["liters"]
         live["dispensed"] = 0.0
-        balance = round(float(user["balance"]), 2)
         self.send(station_id, "order_ready", order_id=order["id"], user_id=user["id"], name=user["name"],
-                  balance=balance, liters=order["liters"], amount=order["amount"],
-                  wallet_ok=balance >= order["amount"], remote=remote, warning=order.get("warning", ""))
+                  liters=order["liters"], amount=order["amount"], remote=remote, warning=order.get("warning", ""))
         where = "dashboard" if remote else "station"
         self._log(station_id, "down", "order_ready",
                   f"Order {order['id']} ({where}): {order['liters']:g} L = ₹{order['amount']:.0f}, waiting for payment"
@@ -543,5 +544,5 @@ def _order_view(order):
     if not order:
         return None
     keys = ("id", "liters", "amount", "status", "txnId", "source", "dispensedLiters", "charged", "refund",
-            "warning", "userId", "userName")
+            "warning", "userId", "userName", "payRequestedAt", "paymentMethod")
     return {key: order.get(key) for key in keys}
