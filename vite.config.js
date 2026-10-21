@@ -1,23 +1,16 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
+// The dashboard talks to the backend directly on port 5000 (see frontend/src/services/api.js).
 export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    host: '0.0.0.0',
-    cors: true,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:5000',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, '/api')
-      }
-    }
+    host: '0.0.0.0'
   },
   build: {
     outDir: 'dist',
     sourcemap: false,
     minify: 'esbuild'
   }
-})
+});

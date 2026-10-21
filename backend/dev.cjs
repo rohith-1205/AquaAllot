@@ -44,14 +44,16 @@ if (check.status !== 0) {
 //   node dev.cjs          → backend
 //   node dev.cjs check    → network check (which MQTT broker/port works here)
 //   node dev.cjs fake     → fake ESP32 (pass extra options after it, e.g. --demo)
+//   node dev.cjs test     → run the backend tests
 const [mode, ...extra] = process.argv.slice(2);
-const scripts = {
-  check: path.join(here, '..', 'tools', 'check_network.py'),
-  fake: path.join(here, '..', 'tools', 'fake_esp32.py')
+const commands = {
+  check: [path.join(here, '..', 'tools', 'check_network.py')],
+  fake: [path.join(here, '..', 'tools', 'fake_esp32.py')],
+  test: ['-m', 'unittest', 'discover', '-s', 'tests', '-t', '.', '-v']
 };
-const script = scripts[mode] || path.join(here, 'app.py');
-if (!scripts[mode]) console.log('🚀 Starting AquaAllot backend on http://localhost:5000 ...\n');
-const server = spawn(pyCmd, [...pyArgs, script, ...extra], { cwd: here, env, stdio: 'inherit' });
+const args = commands[mode] || [path.join(here, 'app.py')];
+if (!commands[mode]) console.log('🚀 Starting AquaAllot backend on http://localhost:5000 ...\n');
+const server = spawn(pyCmd, [...pyArgs, ...args, ...extra], { cwd: here, env, stdio: 'inherit' });
 
 server.on('exit', (code) => process.exit(code ?? 0));
 process.on('SIGINT', () => server.kill('SIGINT'));

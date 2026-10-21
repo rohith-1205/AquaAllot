@@ -6,17 +6,16 @@ import { useApp } from '../context/AppContext';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
 import { Modal } from '../components/common/Modal';
+import { TopUpModal } from '../components/common/TopUpModal';
 
 export const Users = () => {
-  const { users, addNewUser, addUserBalance } = useApp();
+  const { users, addNewUser, refresh } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
   const [hostelFilter, setHostelFilter] = useState('All'); // All | Hostel Block A | Hostel Block B | PG Block C
   const [statusFilter, setStatusFilter] = useState('All'); // All | Active | Warning | Suspended
 
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
-  const [isTopUpModalOpen, setIsTopUpModalOpen] = useState(false);
-  const [selectedUserForTopUp, setSelectedUserForTopUp] = useState(null);
-  const [topUpAmount, setTopUpAmount] = useState(100);
+  const [selectedUserForTopUp, setSelectedUserForTopUp] = useState(null); // opens the Razorpay top-up popup
 
   // Form state
   const [newUserName, setNewUserName] = useState('');
@@ -65,20 +64,6 @@ export const Users = () => {
       setNewUserRfid('');
     } catch (err) {
       toast.error(err.message);
-    }
-  };
-
-  const handleAddBalanceSubmit = async (e) => {
-    e.preventDefault();
-    if (selectedUserForTopUp && topUpAmount > 0) {
-      try {
-        await addUserBalance(selectedUserForTopUp.id, topUpAmount);
-        toast.success(`₹${topUpAmount} added to ${selectedUserForTopUp.name}'s wallet.`);
-        setIsTopUpModalOpen(false);
-        setSelectedUserForTopUp(null);
-      } catch (err) {
-        toast.error(err.message);
-      }
     }
   };
 
@@ -265,7 +250,6 @@ export const Users = () => {
                         <button
                           onClick={() => {
                             setSelectedUserForTopUp(usr);
-                            setIsTopUpModalOpen(true);
                           }}
                           className="p-1.5 text-sky-600 hover:bg-sky-50 rounded-lg transition-colors cursor-pointer"
                           title="Top Up Prepaid Balance"
@@ -364,44 +348,7 @@ export const Users = () => {
       </Modal>
 
       {/* Top-up Balance Modal */}
-      <Modal isOpen={isTopUpModalOpen} onClose={() => setIsTopUpModalOpen(false)} title={`Add Balance: ${selectedUserForTopUp?.name}`}>
-        <form onSubmit={handleAddBalanceSubmit} className="space-y-4">
-          <div className="text-xs space-y-1">
-            <p className="text-slate-500">Student: <strong className="text-slate-900">{selectedUserForTopUp?.name}</strong> ({selectedUserForTopUp?.hostelBlock})</p>
-            <p className="text-slate-500">Current Balance: <strong className="text-slate-900">₹{selectedUserForTopUp?.balance}</strong></p>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Top-up Amount (₹)</label>
-            <input
-              type="number"
-              min="10"
-              step="10"
-              value={topUpAmount}
-              onChange={(e) => setTopUpAmount(Number(e.target.value))}
-              className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500"
-            />
-          </div>
-          <div className="flex gap-2">
-            {[50, 100, 200, 500].map((amt) => (
-              <button
-                key={amt}
-                type="button"
-                onClick={() => setTopUpAmount(amt)}
-                className="flex-1 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold hover:bg-slate-50"
-              >
-                +₹{amt}
-              </button>
-            ))}
-          </div>
-
-          <div className="pt-4 flex items-center justify-end gap-2 border-t border-slate-100">
-            <Button variant="outline" type="button" onClick={() => setIsTopUpModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="submit">Confirm Top-Up</Button>
-          </div>
-        </form>
-      </Modal>
+      <TopUpModal user={selectedUserForTopUp} onClose={() => setSelectedUserForTopUp(null)} onDone={refresh} />
     </div>
   );
 };

@@ -20,7 +20,11 @@
 //
 //  Every step (card, order, payment, litres, anomaly) is sent as a small
 //  JSON message. The backend checks it and replies. If the backend can't
-//  be reached, the station still works in OFFLINE MODE with local cards.
+//  be reached, the station still works in OFFLINE MODE with local cards,
+//  and the offline cash sales are uploaded once the cloud is back.
+//
+//  Money: water is always paid from the student's prepaid wallet (PAY
+//  button or dashboard). Wallets are topped up with Razorpay on the dashboard.
 //
 //  Demo cards (built into the Wokwi RFID reader - click it to choose):
 //    Blue   01:02:03:04  Rohith        Green  11:22:33:44  Deepankishor
@@ -36,7 +40,7 @@ const char* MQTT_BROKER   = "test.mosquitto.org";
 const int   MQTT_PORT     = 1883;
 const char* TOPIC_ROOT    = "aquaallot-demo-rohith1205";   // MUST match MQTT_TOPIC_ROOT in the backend
 const char* STATION_ID    = "STN-001";
-const char* FIRMWARE      = "3.0.0";
+const char* FIRMWARE      = "3.1.0";
 
 // ---------------- PIN DEFINITIONS ----------------
 
@@ -102,7 +106,7 @@ enum SystemState {
   CHECKING_CARD,        // asked backend "who is this card?"
   CHOOSE_QUANTITY,      // 1 / 2 / 5 L menu
   CREATING_ORDER,       // asked backend to create the order
-  WAIT_PAYMENT,         // PAY button (wallet) or Razorpay on the dashboard
+  WAIT_PAYMENT,         // PAY button or "Pay from wallet" on the dashboard
   CONFIRMING_PAYMENT,   // asked backend to take money from the wallet
   DISPENSING,           // valve open, counting litres
   COMPLETE,             // done screen
@@ -128,6 +132,8 @@ String payMethod = "";
 String txnLabel = "";
 String paymentNote = "";
 String alertReason = "";
+String orderWarning = "";      // e.g. "Above normal use" (admin is alerted)
+float refundAmount = 0;        // unused litres returned to the wallet
 
 float dispensedLiters = 0;
 float flowLpm = 0;
@@ -144,6 +150,20 @@ unsigned long lastPulseChange = 0;
 unsigned long lastHeartbeat = 0;
 unsigned long lastWifiTry = 0;
 unsigned long lastMqttTry = 0;
+
+// ---------------- OFFLINE SALES (uploaded when back online) ----------------
+
+struct OfflineSale {
+  String id;
+  String uid;
+  float liters;
+  float amount;
+  unsigned long at;     // millis() when it happened
+};
+
+const int MAX_OFFLINE_SALES = 10;
+OfflineSale offlineSales[MAX_OFFLINE_SALES];
+int offlineSaleCount = 0;
 
 
 // =====================================================
@@ -191,9 +211,9 @@ String topic(const char* channel) {
 
 void IRAM_ATTR countFlowPulse() {
   if (valveIsOpen)
-    flowPulses++;
+    flowPulses = flowPulses + 1;
   else if (leakSwitchOn)
-    leakPulses++;
+    leakPulses = leakPulses + 1;
 }
 
 
@@ -322,9 +342,16 @@ void showPayment() {
   display.println("---------------------");
   display.print("Wallet: Rs ");
   display.println(walletBalance, 0);
-  display.println(walletEnough ? "[PAY] use wallet" : "[PAY] wallet too low");
-  display.println("or pay with Razorpay");
-  display.println("on the dashboard");
+  if (walletEnough) {
+    display.println("[PAY] = pay by wallet");
+  } else {
+    display.println("Wallet too low:");
+    display.println("top up on dashboard");
+  }
+  if (orderWarning.length()) {
+    display.print("! ");
+    display.println(orderWarning);
+  }
   if (paymentNote.length()) {
     display.print("! ");
     display.println(paymentNote);
@@ -359,6 +386,9 @@ void showComplete() {
   display.print("Delivered: ");  display.print(dispensedLiters, 2);  display.println(" L");
   display.print("Paid by  : ");  display.println(payMethod);
   display.print("Wallet   : Rs ");  display.println(walletBalance, 0);
+  if (refundAmount > 0) {
+    display.print("Refunded : Rs ");  display.println(refundAmount, 2);
+  }
   display.println(txnLabel.length() ? txnLabel : String("Saving..."));
   display.display();
 }
@@ -368,7 +398,13 @@ void showAlert() {
   display.println("!!  ALERT  !!");
   display.println("---------------------");
   display.println(alertReason);
-  display.println();
+  if (refundAmount > 0) {
+    display.print("Refund Rs ");
+    display.print(refundAmount, 2);
+    display.println(" to wallet");
+  } else {
+    display.println();
+  }
   display.println("VALVE CLOSED");
   display.println("Admin notified");
   display.println("[PAY] = acknowledge");
@@ -390,7 +426,8 @@ void setState(SystemState newState) {
 
 void clearSession() {
   cardUid = userId = userName = "";
-  orderId = payMethod = txnLabel = paymentNote = alertReason = "";
+  orderId = payMethod = txnLabel = paymentNote = alertReason = orderWarning = "";
+  refundAmount = 0;
   walletBalance = orderLiters = orderAmount = 0;
   walletEnough = false;
   dispensedLiters = flowLpm = 0;
@@ -534,10 +571,10 @@ void checkRFID() {
 // =====================================================
 
 void onOrderReady(String id, String uid, String name, float balance,
-                  float liters, float amount, bool walletOk, bool fromDashboard) {
+                  float liters, float amount, bool walletOk, bool fromDashboard, String warning) {
   if (fromDashboard) {
-    // Admin started an order on the dashboard: accept it when the station is free
-    if (state != WAIT_CARD && state != CHOOSE_QUANTITY && state != NOTICE)
+    // Admin started an order on the dashboard: only accept it when nobody is at the tap
+    if (state != WAIT_CARD && state != NOTICE)
       return;
     userId = uid;
     userName = name;
@@ -551,6 +588,12 @@ void onOrderReady(String id, String uid, String name, float balance,
   orderAmount = amount;
   walletEnough = walletOk;
   paymentNote = "";
+  orderWarning = warning;
+  if (warning.length()) {
+    Serial.print("[USAGE] ");
+    Serial.print(warning);
+    Serial.println(" - admin alerted on the dashboard");
+  }
 
   Serial.print("[ORDER] ");
   Serial.print(orderLiters, 1);
@@ -576,7 +619,7 @@ void requestOrder(float liters) {
   }
 
   // OFFLINE MODE
-  onOrderReady("", userId, userName, 0, liters, liters * OFFLINE_PRICE, true, false);
+  onOrderReady("", userId, userName, 0, liters, liters * OFFLINE_PRICE, true, false, "");
 }
 
 void handleQuantity() {
@@ -610,7 +653,7 @@ void onPaymentFailed(String reason) {
   Serial.print("[PAYMENT] FAILED: ");
   Serial.println(reason);
   paymentNote = reason;
-  walletEnough = false;
+  walletEnough = false;   // screen now says "top up on dashboard"
   beep(300);
   setState(WAIT_PAYMENT);
   showPayment();
@@ -658,6 +701,42 @@ void startDispensing() {
   showDispensing();
 }
 
+void queueOfflineSale(String uid, float liters, float amount) {
+  if (offlineSaleCount >= MAX_OFFLINE_SALES) {
+    Serial.println("[OFFLINE] Sale queue full - oldest sale dropped");
+    for (int i = 1; i < MAX_OFFLINE_SALES; i++)
+      offlineSales[i - 1] = offlineSales[i];
+    offlineSaleCount--;
+  }
+  OfflineSale& sale = offlineSales[offlineSaleCount++];
+  sale.id = String(STATION_ID) + "-" + String((uint32_t)esp_random(), HEX);
+  sale.uid = uid;
+  sale.liters = liters;
+  sale.amount = amount;
+  sale.at = millis();
+  Serial.print("[OFFLINE] Sale saved for upload later (");
+  Serial.print(offlineSaleCount);
+  Serial.println(" waiting)");
+}
+
+// Send waiting offline sales to the backend (oldest first)
+void uploadOfflineSales() {
+  while (offlineSaleCount > 0 && cloudOnline()) {
+    OfflineSale& sale = offlineSales[0];
+    JsonDocument doc;
+    doc["sale_id"] = sale.id;
+    doc["uid"] = sale.uid;
+    doc["liters"] = sale.liters;
+    doc["amount"] = sale.amount;
+    doc["seconds_ago"] = (millis() - sale.at) / 1000;
+    if (!sendEvent("offline_sale", doc))
+      return;   // try again later
+    for (int i = 1; i < offlineSaleCount; i++)
+      offlineSales[i - 1] = offlineSales[i];
+    offlineSaleCount--;
+  }
+}
+
 // result: "done", "stopped" or "anomaly"
 void finishDispensing(const char* result, String reason) {
   valveClose();
@@ -671,6 +750,10 @@ void finishDispensing(const char* result, String reason) {
     doc["result"] = result;
     doc["reason"] = reason;
     sendEvent("complete", doc);
+  } else if (dispensedLiters > 0) {
+    // OFFLINE MODE sale: remember it and upload it when the cloud is back
+    float charged = orderLiters > 0 ? orderAmount * dispensedLiters / orderLiters : 0;
+    queueOfflineSale(cardUid, dispensedLiters, charged);
   }
 
   if (strcmp(result, "done") == 0) {
@@ -715,7 +798,7 @@ void handleDispensing() {
 
   // Anomaly test button
   if (pressedButton(BTN_ANOMALY)) {
-    Serial.println("[AI/ANN] ANOMALY DETECTED");
+    Serial.println("[ANOMALY] Abnormal flow reported (test button)");
     finishDispensing("anomaly", "Abnormal flow (test)");
     return;
   }
@@ -743,16 +826,20 @@ void handleDispensing() {
 //          STEP 5 - REPLIES AFTER DISPENSING
 // =====================================================
 
-void onFinishSaved(bool anomaly, float balance, String txnId) {
-  if (state != COMPLETE)
-    return;
+// The backend saved the order: shows the real charge, refund and new wallet balance
+void onFinishSaved(float balance, float refund, String txnId) {
   walletBalance = balance;
-  if (anomaly) {
-    enterAlert("AI: usage spike!");
-    return;
-  }
+  refundAmount = refund;
   txnLabel = "Saved: " + txnId;
-  showComplete();
+  if (refund > 0) {
+    Serial.print("[WALLET] Refunded Rs ");
+    Serial.print(refund, 2);
+    Serial.println(" for undispensed water");
+  }
+  if (state == COMPLETE)
+    showComplete();
+  else if (state == ALERT)
+    showAlert();
 }
 
 void onRemoteStop(String reason) {
@@ -806,7 +893,7 @@ void onCloudMessage(char* topicName, byte* payload, unsigned int length) {
   else if (type == "order_ready") {
     onOrderReady(msg["order_id"] | "", msg["user_id"] | "", msg["name"] | "",
                  msg["balance"] | 0.0, msg["liters"] | 0.0, msg["amount"] | 0.0,
-                 msg["wallet_ok"] | false, msg["remote"] | false);
+                 msg["wallet_ok"] | false, msg["remote"] | false, msg["warning"] | "");
   }
   else if (type == "order_failed") {
     if (state == CREATING_ORDER)
@@ -821,7 +908,7 @@ void onCloudMessage(char* topicName, byte* payload, unsigned int length) {
   }
   else if (type == "finish_ok") {
     if (orderId == (msg["order_id"] | ""))
-      onFinishSaved(msg["anomaly"] | false, msg["balance"] | 0.0, msg["txn_id"] | "");
+      onFinishSaved(msg["balance"] | 0.0, msg["refund"] | 0.0, msg["txn_id"] | "");
   }
   else if (type == "stop") {
     onRemoteStop(msg["reason"] | "Stopped by admin");
@@ -865,6 +952,7 @@ void connectMqtt() {
 
   Serial.print("[MQTT] Connected. Topic: ");
   Serial.println(topic("up"));
+  uploadOfflineSales();
   if (state == WAIT_CARD)
     showHome();
 }
@@ -932,11 +1020,15 @@ void checkSerialInput() {
 // =====================================================
 
 bool pressedButton(int pin) {
-  static unsigned long lastPress[40] = {0};
+  // True only at the moment the button goes DOWN (holding it does not repeat).
+  static bool wasDown[40] = {false};
+  static unsigned long lastChange[40] = {0};
 
-  if (digitalRead(pin) == LOW && millis() - lastPress[pin] > 250) {
-    lastPress[pin] = millis();
-    return true;
+  bool down = digitalRead(pin) == LOW;
+  if (down != wasDown[pin] && millis() - lastChange[pin] > 30) {   // 30 ms debounce
+    wasDown[pin] = down;
+    lastChange[pin] = millis();
+    return down;
   }
   return false;
 }
@@ -996,7 +1088,7 @@ void setup() {
   Serial.println();
   Serial.println("======================================");
   Serial.println("       AQUAALLOT SMART WATER  v3");
-  Serial.println(" RFID + PAYMENT + IoT + AI  (MQTT)");
+  Serial.println(" RFID + WALLET + IoT + ANOMALY CHECK");
   Serial.println("======================================");
   Serial.println("Cards: 01:02:03:04 Rohith | 11:22:33:44 Deepankishor");
   Serial.println("       55:66:77:88 Sanjay | AA:BB:CC:DD unknown");
@@ -1019,13 +1111,17 @@ void loop() {
 
   switch (state) {
 
-    case WAIT_CARD:
+    case WAIT_CARD: {
       checkRFID();
-      if (millis() - lastDisplay > 3000) {     // keep the cloud status line fresh
-        lastDisplay = millis();
+      // redraw the home screen only when the cloud status line changes
+      static int shownCloudStatus = -1;
+      int cloudStatus = cloudOnline() ? 2 : (WiFi.status() == WL_CONNECTED ? 1 : 0);
+      if (cloudStatus != shownCloudStatus) {
+        shownCloudStatus = cloudStatus;
         showHome();
       }
       break;
+    }
 
     case CHECKING_CARD:
     case CREATING_ORDER:

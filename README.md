@@ -77,6 +77,12 @@
 
 ---
 
+## 💰 Money & usage rules (short version)
+
+- Water is always paid from the student's **prepaid wallet**; wallets are topped up only through **Razorpay** (signature verified by the backend).
+- Only the litres actually dispensed are charged – unused litres and stuck orders are **refunded to the wallet** automatically.
+- Each student's normal daily use is learned from their history; going above **μ + 3σ** or the **daily quota** raises one alert per day on the admin dashboard.
+
 ## 🚀 Quick Start
 
 > 📖 **Full step-by-step demo walkthrough: [DEMO_GUIDE.md](DEMO_GUIDE.md)**
@@ -88,7 +94,9 @@
 ### 1. Backend (Flask API + MQTT bridge to Wokwi)
 ```bash
 cd backend
-npm run dev          # installs Python packages the first time, then starts app.py
+copy .env.example .env   # first time (macOS/Linux: cp) – add your Razorpay TEST keys
+npm run dev              # installs Python packages the first time, then starts app.py
+npm test                 # 21 automated tests of the business rules
 ```
 Backend runs on `http://localhost:5000/api` (check `http://localhost:5000/api/health`).
 
@@ -215,8 +223,8 @@ VITE_RAZORPAY_KEY_ID=rzp_test_aquaallot_demo2026
 | Wokwi card | UID | Student | What it shows |
 |------------|-----|---------|---------------|
 | Blue | 01:02:03:04 | Rohith (₹150) | Happy path, wallet payment |
-| Green | 11:22:33:44 | Deepankishor (₹8) | Low wallet → pay with Razorpay on the dashboard |
-| Yellow | 55:66:77:88 | Sanjay (₹200) | 5 L exceeds his 3-sigma limit → AI anomaly |
+| Green | 11:22:33:44 | Deepankishor (₹8) | Low wallet → top up with Razorpay, then pay from the wallet |
+| Yellow | 55:66:77:88 | Sanjay (₹200) | 5 L exceeds his 3-sigma limit → over-usage alert on the admin dashboard |
 | Key fob | C0:FF:EE:99 | Karthik N | Suspended → access denied |
 | Red | AA:BB:CC:DD | – | Unknown card → access denied |
 | NFC tag | 04:11:22:33:44:55:66 | – | Register it live on the Users page |

@@ -1,9 +1,18 @@
+# Installed packages – run `npm install` (root) after cloning
+node_modules/
+
+# Build output – created by `npm run build`
+dist/
+esp32-wokwi/build/
+
+# Secrets – copy the matching .env.example and fill in your own keys
+.env
+backend/.env
+frontend/.env
+
 # Python
 __pycache__/
 *.pyc
 
-# Builds
-esp32-wokwi/build/
-
-# Local scratch
+# Logs
 *.log

@@ -2,8 +2,8 @@
 // Who owns each card is decided by the backend (backend/demo_data.py).
 export const WOKWI_CARDS = [
   { uid: '01:02:03:04', label: 'Blue card', key: 'b', gradient: 'from-blue-500 to-indigo-600', hint: 'Happy path – wallet has money' },
-  { uid: '11:22:33:44', label: 'Green card', key: 'g', gradient: 'from-emerald-500 to-teal-600', hint: 'Low wallet → pay with Razorpay' },
-  { uid: '55:66:77:88', label: 'Yellow card', key: 'y', gradient: 'from-amber-400 to-orange-500', hint: '5 L triggers the AI anomaly' },
+  { uid: '11:22:33:44', label: 'Green card', key: 'g', gradient: 'from-emerald-500 to-teal-600', hint: 'Low wallet → top up with Razorpay' },
+  { uid: '55:66:77:88', label: 'Yellow card', key: 'y', gradient: 'from-amber-400 to-orange-500', hint: '5 L → over-usage alert for the admin' },
   { uid: 'C0:FF:EE:99', label: 'Key fob', key: 'k', gradient: 'from-orange-500 to-red-500', hint: 'Suspended account' },
   { uid: 'AA:BB:CC:DD', label: 'Red card', key: 'r', gradient: 'from-rose-500 to-pink-600', hint: 'Not registered → denied' },
   { uid: '04:11:22:33:44:55:66', label: 'NFC tag', key: 'n', gradient: 'from-slate-500 to-slate-700', hint: 'Register it on the Users page' }

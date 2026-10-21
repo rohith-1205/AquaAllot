@@ -32,11 +32,11 @@ export const Sidebar = ({ isMobileOpen, setIsMobileOpen }) => {
     { name: 'Live Station', path: '/live', icon: Cpu, badge: liveStation?.online ? 'LIVE' : 'Wokwi' },
     { name: 'Dispenser Kiosk', path: '/kiosk', icon: Smartphone, badge: 'Mobile' },
     { name: 'Users', path: '/users', icon: Users },
-    { name: 'Dispensing', path: '/dispensing', icon: Droplets, badge: 'Pay' },
+    { name: 'New Order', path: '/dispensing', icon: Droplets, badge: 'Wallet' },
     { name: 'Payments', path: '/payments', icon: CreditCard },
     { name: 'Analytics', path: '/analytics', icon: BarChart3 },
     { name: 'Alerts', path: '/alerts', icon: AlertTriangle, count: kpis?.totalAlertsCount },
-    { name: 'Stations', path: '/stations', icon: Radio, count: `${kpis?.activeStationsCount}/${kpis?.totalStationsCount}` },
+    { name: 'Stations', path: '/stations', icon: Radio, count: `${kpis?.liveStationsOnline ?? 0}/${kpis?.liveStationsTotal ?? 1} live` },
     { name: 'Settings', path: '/settings', icon: Settings }
   ];
 

@@ -104,7 +104,7 @@ class FakeStation:
         elif kind == "payment_ok":
             threading.Thread(target=self.dispense, daemon=True).start()
         elif kind == "finish_ok":
-            self.state = "ALERT" if data.get("anomaly") else "COMPLETE"
+            self.state = "COMPLETE"
         elif kind == "stop":
             self.stop_reason = data.get("reason", "Stopped")
             if self.state != "DISPENSING":
@@ -142,6 +142,12 @@ class FakeStation:
         else:
             self.state = "COMPLETE"
             self.send("complete", order_id=self.order_id, liters=round(self.liters, 2), result="done")
+            threading.Timer(7, self.back_home_after_done).start()   # like the 7 s "thank you" screen
+
+    def back_home_after_done(self):
+        if self.state == "COMPLETE":
+            self.reset()
+            self.send_quiet("heartbeat")
 
     def anomaly(self, reason="Abnormal flow (manual test)"):
         if self.state == "DISPENSING":
@@ -173,21 +179,31 @@ def run_demo(station):
     station.pay(); wait_for(station, "payment_ok"); wait_for(station, "finish_ok")
     time.sleep(2); station.reset()
 
-    print("\n=== 2. Deepankishor (green card) has a low wallet → wallet fails ===")
+    print("\n=== 2. Deepankishor (green card) has a low wallet → wallet refused ===")
     station.tap("11:22:33:44"); wait_for(station, "card_result")
     station.order(2); wait_for(station, "order_ready")
     station.pay(); wait_for(station, "payment_failed")
-    print("   (now pay this order with Razorpay on the dashboard → Live Station)")
+    print("   (on the dashboard → Live Station: 'Top up with Razorpay & pay')")
     time.sleep(2); station.send("cancel", order_id=station.order_id); station.reset()
 
-    print("\n=== 3. Sanjay (yellow card) takes 5 L → AI usage anomaly ===")
+    print("\n=== 3. Sanjay (yellow card) takes 5 L → over-usage alert on the admin dashboard ===")
     station.tap("55:66:77:88"); wait_for(station, "card_result")
-    station.order(5); wait_for(station, "order_ready")
+    station.order(5); ready = wait_for(station, "order_ready")
+    print("   warning shown on OLED:", ready.get("warning") or "(none)")
     station.pay(); wait_for(station, "payment_ok"); reply = wait_for(station, "finish_ok", timeout=30)
-    print("   anomaly flagged:", reply.get("anomaly"))
-    time.sleep(1); station.pay()  # acknowledge alarm
+    print(f"   charged ₹{reply.get('charged')}, wallet now ₹{reply.get('balance')}")
+    time.sleep(1); station.reset()
 
-    print("\n=== 4. Unknown red card ===")
+    print("\n=== 4. Rohith 5 L, admin presses Emergency stop → unused litres refunded ===")
+    station.tap("01:02:03:04"); wait_for(station, "card_result")
+    station.order(5); wait_for(station, "order_ready")
+    station.pay(); wait_for(station, "payment_ok")
+    time.sleep(3.5); station.stop_reason = "Stopped by admin (fake)"
+    reply = wait_for(station, "finish_ok", timeout=10)
+    print(f"   charged ₹{reply.get('charged')}, refunded ₹{reply.get('refund')}")
+    time.sleep(1); station.reset()
+
+    print("\n=== 5. Unknown red card ===")
     station.tap("AA:BB:CC:DD"); wait_for(station, "card_result")
     station.reset()
     print("\n✓ Demo finished. Check the dashboard: transactions, alerts and the Live Station event log.")
