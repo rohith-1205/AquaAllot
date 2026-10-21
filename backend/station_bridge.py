@@ -5,7 +5,7 @@ Why MQTT?  The Wokwi simulator runs on wokwi.com, so it can't reach
 "localhost" on your laptop. Instead, both sides connect *out* to the same
 free public MQTT broker and exchange small JSON messages through it:
 
-    Wokwi ESP32  --->  broker.hivemq.com  <---  this backend (your laptop)
+    Wokwi ESP32  --->  test.mosquitto.org  <---  this backend (your laptop)
 
 Topics  (ROOT = MQTT_TOPIC_ROOT, must be the same in sketch.ino):
 
@@ -112,6 +112,7 @@ class StationBridge:
             ("tcp", 1883, False),
             ("websockets", 8000, False),
             ("websockets", 8884, True),
+            ("websockets", 8081, True),  # test.mosquitto.org
             ("websockets", 443, True),   # brokers that offer MQTT on the normal HTTPS port
             ("websockets", 80, False),
         ]

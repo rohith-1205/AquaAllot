@@ -39,9 +39,9 @@ PORT = int(os.getenv("PORT", "5000"))
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 
 MQTT_ENABLED = os.getenv("MQTT_ENABLED", "true").lower() != "false"
-MQTT_BROKER = os.getenv("MQTT_BROKER", "broker.hivemq.com")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
-MQTT_TRANSPORT = os.getenv("MQTT_TRANSPORT", "tcp")      # "tcp" or "websockets" (port 8000) if 1883 is blocked
+MQTT_BROKER = os.getenv("MQTT_BROKER", "test.mosquitto.org")
+MQTT_PORT = int(os.getenv("MQTT_PORT", "8081"))           # secure WebSockets: works on networks that block 1883
+MQTT_TRANSPORT = os.getenv("MQTT_TRANSPORT", "websockets")  # "tcp" (port 1883) or "websockets"
 MQTT_TOPIC_ROOT = os.getenv("MQTT_TOPIC_ROOT", "aquaallot-demo-rohith1205")  # must match sketch.ino
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(message)s", datefmt="%H:%M:%S")

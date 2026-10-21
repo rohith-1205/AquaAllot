@@ -158,7 +158,7 @@ const CustomerCard = ({ station }) => {
 const SetupGuide = ({ backendOnline, mqtt }) => {
   const steps = [
     { done: backendOnline, text: 'Start the backend:  cd backend  →  npm run dev' },
-    { done: mqtt?.connected, text: `Backend connects to the MQTT broker (${mqtt?.broker || 'broker.hivemq.com'})` },
+    { done: mqtt?.connected, text: `Backend connects to the MQTT broker (${mqtt?.broker || 'test.mosquitto.org'})` },
     { done: false, text: 'Open wokwi.com → new ESP32 project → paste sketch.ino, diagram.json, libraries.txt' },
     { done: false, text: 'Press ▶ in Wokwi and wait for “Cloud: ONLINE” on the OLED' }
   ];
