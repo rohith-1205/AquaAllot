@@ -65,3 +65,33 @@ body {
 .custom-table tr:hover td {
   background-color: #f8fafc;
 }
+
+/* ---------- Animations ---------- */
+
+/* Page fade-in (used as className="animate-fadeIn") */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fadeIn {
+  animation: fadeIn 0.35s ease-out;
+}
+
+/* Live Station: moving water surface inside the tank */
+@keyframes waterWave {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.water-wave {
+  animation: waterWave 3s linear infinite;
+}
+
+/* Live Station: bubbles rising while dispensing */
+@keyframes bubbleUp {
+  0% { transform: translateY(0); opacity: 0; }
+  20% { opacity: 0.8; }
+  100% { transform: translateY(-120px); opacity: 0; }
+}
+.bubble {
+  animation: bubbleUp 2.2s ease-in infinite;
+}

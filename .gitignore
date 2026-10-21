@@ -1,0 +1,9 @@
+# Python
+__pycache__/
+*.pyc
+
+# Builds
+esp32-wokwi/build/
+
+# Local scratch
+*.log

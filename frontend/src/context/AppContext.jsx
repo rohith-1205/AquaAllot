@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { api } from '../services/api';
 import {
   initialUsers,
   initialStations,
@@ -8,155 +9,160 @@ import {
   initialAlerts,
   initialAnomalies
 } from '../services/mockData';
-import { api } from '../services/api';
 
-const AppContext = createContext(null);
+const AppContext = createContext();
+
+// The station that the Wokwi ESP32 drives (same as WIRED_STATION_ID in the backend)
+export const LIVE_STATION_ID = 'STN-001';
 
 export const AppProvider = ({ children }) => {
+  // Sample data is shown until the backend answers, then replaced by real data
   const [users, setUsers] = useState(initialUsers);
   const [stations, setStations] = useState(initialStations);
   const [transactions, setTransactions] = useState(initialTransactions);
-  const [waterUsage, setWaterUsage] = useState(initialWaterUsage);
-  const [revenueData, setRevenueData] = useState(initialRevenueData);
+  const [waterUsage] = useState(initialWaterUsage);
+  const [revenueData] = useState(initialRevenueData);
   const [alerts, setAlerts] = useState(initialAlerts);
   const [anomalies, setAnomalies] = useState(initialAnomalies);
   const [demoMode, setDemoMode] = useState(false);
-  const [waterPricePerLiter, setWaterPricePerLiter] = useState(5); // ₹5/L default
+  const [waterPricePerLiter, setWaterPrice] = useState(5); // ₹5/L default
 
-  // Fetch live backend data from MongoDB
-  const loadBackendData = async () => {
+  // Live Wokwi station: { mqtt, stations: [...], events: [...] }
+  const [live, setLive] = useState(null);
+  const [backendOnline, setBackendOnline] = useState(null); // null = still checking
+
+  // ---------- 1. Live station state (every second) ----------
+  const loadLive = useCallback(async () => {
     try {
-      const uRes = await api.getUsers();
-      if (uRes?.users?.length) setUsers(uRes.users);
+      const data = await api.getLive();
+      setLive(data);
+      setBackendOnline(true);
+    } catch (err) {
+      setBackendOnline(false);
+    }
+  }, []);
 
-      const sRes = await api.getStations();
-      if (sRes?.stations?.length) setStations(sRes.stations);
+  useEffect(() => {
+    loadLive();
+    const interval = setInterval(loadLive, 1000);
+    return () => clearInterval(interval);
+  }, [loadLive]);
 
-      const tRes = await api.getTransactions();
-      if (tRes?.transactions?.length) setTransactions(tRes.transactions);
-
-      const aRes = await api.getAlerts();
+  // ---------- 2. Everything else (every 3 seconds) ----------
+  const loadBackendData = useCallback(async () => {
+    if (backendOnline === false) return; // keep showing sample data until the backend is back
+    try {
+      const [uRes, sRes, tRes, aRes, settingsRes] = await Promise.all([
+        api.getUsers(),
+        api.getStations(),
+        api.getTransactions(),
+        api.getAlerts(),
+        api.getSettings()
+      ]);
+      if (uRes?.users) setUsers(uRes.users);
+      if (sRes?.stations) setStations(sRes.stations);
+      if (tRes?.transactions) setTransactions(tRes.transactions);
       if (aRes?.alerts) setAlerts(aRes.alerts);
       if (aRes?.anomalies) setAnomalies(aRes.anomalies);
+      if (settingsRes?.settings?.waterPricePerLiter) setWaterPrice(settingsRes.settings.waterPricePerLiter);
     } catch (err) {
-      console.warn('Backend sync fallback');
+      console.warn('Backend sync failed, showing last known data');
     }
-  };
+  }, [backendOnline]);
 
   useEffect(() => {
     loadBackendData();
-    // Live polling every 3 seconds to keep MongoDB, Kiosk & Wokwi telemetry in sync
     const interval = setInterval(loadBackendData, 3000);
     return () => clearInterval(interval);
-  }, [demoMode]);
+  }, [loadBackendData]);
 
-  // Soft real-time telemetry pulse effect (simulates IoT heartbeats)
+  // Demo mode: small random flow changes on the SAMPLE stations only (never on the live Wokwi one)
   useEffect(() => {
     if (!demoMode) return;
     const interval = setInterval(() => {
-      setStations((prevStations) =>
-        prevStations.map((stn) => {
-          const syncVariation = Math.floor(Math.random() * 4) + 3;
-          const flowVar = stn.status === 'Online' 
-            ? parseFloat((3.5 + Math.random() * 1.5).toFixed(1))
-            : stn.flowRate;
-          return {
-            ...stn,
-            lastSync: syncVariation,
-            flowRate: flowVar
-          };
-        })
+      setStations((prev) =>
+        prev.map((stn) =>
+          stn.isLive || stn.status !== 'Online'
+            ? stn
+            : {
+                ...stn,
+                lastSync: Math.floor(Math.random() * 4) + 3,
+                flowRate: parseFloat((3.5 + Math.random() * 1.5).toFixed(1))
+              }
+        )
       );
     }, 8000);
-
     return () => clearInterval(interval);
   }, [demoMode]);
 
-  // Log dispensing transaction & update live stats
+  // ---------- Actions ----------
+
+  // Kiosk / Dispensing pages: show the new transaction at once (the backend copy arrives on the next sync)
   const addTransaction = (newTxn) => {
     setTransactions((prev) => [newTxn, ...prev]);
-
-    // Update user stats
-    setUsers((prevUsers) =>
-      prevUsers.map((usr) => {
-        if (usr.id === newTxn.userId) {
-          const newBalance = Math.max(0, usr.balance - newTxn.amount);
-          const newToday = parseFloat((usr.todayUsage + newTxn.waterLiters).toFixed(1));
-          const newMonthly = parseFloat((usr.monthlyUsage + newTxn.waterLiters).toFixed(1));
-          const newSpent = usr.totalSpent + newTxn.amount;
-          return {
-            ...usr,
-            balance: newBalance,
-            todayUsage: newToday,
-            monthlyUsage: newMonthly,
-            totalSpent: newSpent
-          };
-        }
-        return usr;
-      })
-    );
-
-    // Update station usage
-    setStations((prevStations) =>
-      prevStations.map((stn) => {
-        if (stn.id === newTxn.stationId || stn.name.includes(newTxn.stationId)) {
-          return {
-            ...stn,
-            todayUsage: parseFloat((stn.todayUsage + newTxn.waterLiters).toFixed(1))
-          };
-        }
-        return stn;
-      })
-    );
-  };
-
-  // Add balance to user
-  const addUserBalance = (userId, amount) => {
     setUsers((prevUsers) =>
       prevUsers.map((usr) =>
-        usr.id === userId ? { ...usr, balance: usr.balance + amount } : usr
+        usr.id === newTxn.userId
+          ? {
+              ...usr,
+              todayUsage: parseFloat((usr.todayUsage + newTxn.waterLiters).toFixed(1)),
+              monthlyUsage: parseFloat((usr.monthlyUsage + newTxn.waterLiters).toFixed(1)),
+              totalSpent: usr.totalSpent + newTxn.amount
+            }
+          : usr
       )
     );
   };
 
-  // Add new user
-  const addNewUser = (newUserObj) => {
-    const formattedUser = {
-      id: `USR00${users.length + 1}`,
-      balance: 100,
-      todayUsage: 0.0,
-      monthlyUsage: 0.0,
-      totalSpent: 0.0,
-      status: 'Active',
-      avgDailyUsage: 0.0,
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${newUserObj.name}`,
-      ...newUserObj
-    };
-    setUsers((prev) => [formattedUser, ...prev]);
-    return formattedUser;
+  const addUserBalance = async (userId, amount) => {
+    await api.topUp(userId, amount);
+    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, balance: u.balance + amount } : u)));
   };
 
-  // Resolve alert
-  const resolveAlert = (alertId) => {
-    setAlerts((prevAlerts) =>
-      prevAlerts.map((alt) =>
-        alt.id === alertId ? { ...alt, status: 'Resolved' } : alt
-      )
-    );
+  // Register a student + RFID card in the backend (so the card works in Wokwi immediately)
+  const addNewUser = async (newUser) => {
+    const res = await api.createUser(newUser);
+    setUsers((prev) => [res.user, ...prev]);
+    return res.user;
   };
 
-  // Toggle demo mode
+  const resolveAlert = async (alertId) => {
+    setAlerts((prev) => prev.map((a) => (a.id === alertId ? { ...a, status: 'Resolved' } : a)));
+    await api.resolveAlert(alertId);
+  };
+
+  const setWaterPricePerLiter = async (price) => {
+    await api.updateSettings({ waterPricePerLiter: price });
+    setWaterPrice(price);
+  };
+
+  // Dashboard buttons → ESP32 (tap_card, start_order, stop, reset)
+  const sendStationCommand = async (action, params = {}) => {
+    const res = await api.stationCommand(LIVE_STATION_ID, action, params);
+    loadLive();
+    return res;
+  };
+
+  const resetDemoData = async () => {
+    await api.resetDemo();
+    await loadBackendData();
+  };
+
   const toggleDemoMode = () => setDemoMode((prev) => !prev);
 
-  // Derived KPIs (100% Live from MongoDB)
+  // ---------- Live station shortcuts ----------
+  const liveStation = live?.stations?.find((s) => s.stationId === LIVE_STATION_ID) || null;
+  const liveEvents = live?.events || [];
+  const mqttStatus = live?.mqtt || null;
+
+  // ---------- KPIs ----------
   const totalWaterDispensed = parseFloat(
     transactions.reduce((acc, t) => acc + Number(t.waterLiters || 0), 0).toFixed(1)
-  ) || parseFloat(users.reduce((acc, u) => acc + Number(u.todayUsage || 0), 0).toFixed(1));
-  
+  );
   const totalRevenue = transactions
     .filter((t) => t.paymentStatus === 'Paid' || t.status === 'Paid')
     .reduce((acc, t) => acc + Number(t.amount || 0), 0);
-  
+
   const activeUsersCount = users.filter((u) => u.status === 'Active').length;
   const activeStationsCount = stations.filter((s) => s.status === 'Online').length;
   const criticalAlertsCount = alerts.filter((a) => a.severity === 'Critical' && a.status === 'Unresolved').length;
@@ -180,6 +186,13 @@ export const AppProvider = ({ children }) => {
         addUserBalance,
         addNewUser,
         resolveAlert,
+        resetDemoData,
+        // live Wokwi station
+        backendOnline,
+        liveStation,
+        liveEvents,
+        mqttStatus,
+        sendStationCommand,
         kpis: {
           totalWaterDispensed,
           totalRevenue,

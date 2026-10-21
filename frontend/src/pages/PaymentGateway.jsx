@@ -20,7 +20,7 @@ const PaymentGateway = () => {
     // Mock user verification
     setUserDetails({
       id: 'USR001',
-      name: 'Arun Kumar',
+      name: 'Rohith',
       hostelBlock: 'Hostel Block A',
       roomNo: 'A-204',
       balance: 250.5,

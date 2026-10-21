@@ -1,4 +1,7 @@
+# Libraries for the Wokwi project (wokwi.com reads this file)
 Adafruit GFX Library
 Adafruit SSD1306
 Adafruit BusIO
 MFRC522
+PubSubClient
+ArduinoJson

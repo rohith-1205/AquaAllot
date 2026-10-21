@@ -3,116 +3,375 @@
   "author": "AquaAllot Team",
   "editor": "wokwi",
   "parts": [
-    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": -28.8, "left": 14.44, "attrs": {} },
-    { "type": "board-mfrc522", "id": "rfid", "top": -233.05, "left": 425.84, "attrs": {} },
-    { "type": "board-ssd1306", "id": "oled", "top": 108.74, "left": 787.43, "attrs": {} },
+    {
+      "type": "board-esp32-devkit-c-v4",
+      "id": "esp",
+      "top": -28.8,
+      "left": 14.44,
+      "attrs": {}
+    },
+    {
+      "type": "board-mfrc522",
+      "id": "rfid",
+      "top": -233.05,
+      "left": 425.84,
+      "attrs": {}
+    },
+    {
+      "type": "board-ssd1306",
+      "id": "oled",
+      "top": 108.74,
+      "left": 787.43,
+      "attrs": {}
+    },
     {
       "type": "wokwi-relay-module",
       "id": "relay",
       "top": 230.6,
       "left": 739.2,
-      "attrs": { "transistor": "npn" }
+      "attrs": {
+        "transistor": "npn"
+      }
     },
     {
       "type": "wokwi-clock-generator",
       "id": "flowclk",
       "top": 288,
       "left": 403.2,
-      "attrs": { "frequency": "150" }
+      "attrs": {
+        "frequency": "150"
+      }
     },
-    { "type": "wokwi-buzzer", "id": "buzzer", "top": 376.8, "left": 654.6, "attrs": {} },
+    {
+      "type": "wokwi-buzzer",
+      "id": "buzzer",
+      "top": 376.8,
+      "left": 654.6,
+      "attrs": {}
+    },
     {
       "type": "wokwi-led",
       "id": "statusLed",
       "top": 342,
       "left": 282.2,
-      "attrs": { "color": "green", "label": "SYSTEM" }
+      "attrs": {
+        "color": "green",
+        "label": "SYSTEM"
+      }
     },
     {
       "type": "wokwi-led",
       "id": "valveLed",
       "top": 342,
       "left": 368.6,
-      "attrs": { "color": "blue", "label": "VALVE" }
+      "attrs": {
+        "color": "blue",
+        "label": "VALVE"
+      }
     },
     {
       "type": "wokwi-led",
       "id": "anomalyLed",
       "top": 418.8,
       "left": 551,
-      "attrs": { "color": "red", "label": "ANOMALY" }
+      "attrs": {
+        "color": "red",
+        "label": "ANOMALY"
+      }
     },
     {
       "type": "wokwi-pushbutton",
       "id": "btn1l",
       "top": 755,
       "left": 240,
-      "attrs": { "color": "green", "label": "1 L", "key": "1", "bounce": "0" }
+      "attrs": {
+        "color": "green",
+        "label": "1 L",
+        "key": "1",
+        "bounce": "0"
+      }
     },
     {
       "type": "wokwi-pushbutton",
       "id": "btn2l",
       "top": 697.4,
       "left": 316.8,
-      "attrs": { "color": "blue", "label": "2 L", "key": "2", "bounce": "0" }
+      "attrs": {
+        "color": "blue",
+        "label": "2 L",
+        "key": "2",
+        "bounce": "0"
+      }
     },
     {
       "type": "wokwi-pushbutton",
       "id": "btn5l",
       "top": 639.8,
       "left": 403.2,
-      "attrs": { "color": "yellow", "label": "5 L", "key": "5", "bounce": "0" }
+      "attrs": {
+        "color": "yellow",
+        "label": "5 L",
+        "key": "5",
+        "bounce": "0"
+      }
     },
     {
       "type": "wokwi-pushbutton",
       "id": "btnPay",
       "top": 591.8,
       "left": 489.6,
-      "attrs": { "color": "green", "label": "PAY", "key": "p", "bounce": "0" }
+      "attrs": {
+        "color": "green",
+        "label": "PAY",
+        "key": "p",
+        "bounce": "0"
+      }
     },
     {
       "type": "wokwi-pushbutton",
       "id": "btnAnom",
       "top": 520,
       "left": 700,
-      "attrs": { "color": "red", "label": "ANOMALY", "key": "a", "bounce": "0" }
+      "attrs": {
+        "color": "red",
+        "label": "ANOMALY",
+        "key": "a",
+        "bounce": "0"
+      }
+    },
+    {
+      "type": "wokwi-slide-switch",
+      "id": "leakSw",
+      "top": 297.2,
+      "left": 556.8,
+      "attrs": {
+        "value": "",
+        "bounce": "0"
+      }
     }
   ],
   "connections": [
-    [ "esp:3V3", "rfid:3.3V", "red", [] ],
-    [ "esp:GND.1", "rfid:GND", "black", [] ],
-    [ "esp:18", "rfid:SCK", "green", [] ],
-    [ "esp:19", "rfid:MISO", "blue", [] ],
-    [ "esp:23", "rfid:MOSI", "orange", [] ],
-    [ "esp:5", "rfid:SDA", "yellow", [] ],
-    [ "esp:27", "rfid:RST", "purple", [] ],
-    [ "esp:3V3", "oled:VCC", "red", [] ],
-    [ "esp:GND.1", "oled:GND", "black", [] ],
-    [ "esp:22", "oled:SCL", "green", [] ],
-    [ "esp:21", "oled:SDA", "blue", [] ],
-    [ "esp:3V3", "relay:VCC", "red", [] ],
-    [ "esp:GND.1", "relay:GND", "black", [] ],
-    [ "esp:26", "relay:IN", "orange", [] ],
-    [ "flowclk:CLK", "esp:25", "purple", [] ],
-    [ "esp:14", "buzzer:1", "green", [] ],
-    [ "esp:GND.1", "buzzer:2", "black", [] ],
-    [ "esp:2", "statusLed:A", "green", [] ],
-    [ "statusLed:C", "esp:GND.1", "black", [] ],
-    [ "esp:4", "valveLed:A", "blue", [] ],
-    [ "valveLed:C", "esp:GND.1", "black", [] ],
-    [ "esp:12", "anomalyLed:A", "red", [] ],
-    [ "anomalyLed:C", "esp:GND.1", "black", [] ],
-    [ "btn1l:1.l", "esp:32", "green", [] ],
-    [ "btn1l:2.l", "esp:GND.1", "black", [] ],
-    [ "btn2l:1.l", "esp:33", "blue", [] ],
-    [ "btn2l:2.l", "esp:GND.1", "black", [] ],
-    [ "btn5l:1.l", "esp:16", "yellow", [] ],
-    [ "btn5l:2.l", "esp:GND.1", "black", [] ],
-    [ "btnPay:1.l", "esp:17", "green", [] ],
-    [ "btnPay:2.l", "esp:GND.1", "black", [] ],
-    [ "btnAnom:1.l", "esp:13", "red", [] ],
-    [ "btnAnom:2.l", "esp:GND.1", "black", [] ]
+    [
+      "esp:3V3",
+      "rfid:3.3V",
+      "red",
+      []
+    ],
+    [
+      "esp:GND.1",
+      "rfid:GND",
+      "black",
+      []
+    ],
+    [
+      "esp:18",
+      "rfid:SCK",
+      "green",
+      []
+    ],
+    [
+      "esp:19",
+      "rfid:MISO",
+      "blue",
+      []
+    ],
+    [
+      "esp:23",
+      "rfid:MOSI",
+      "orange",
+      []
+    ],
+    [
+      "esp:5",
+      "rfid:SDA",
+      "yellow",
+      []
+    ],
+    [
+      "esp:27",
+      "rfid:RST",
+      "purple",
+      []
+    ],
+    [
+      "esp:3V3",
+      "oled:VCC",
+      "red",
+      []
+    ],
+    [
+      "esp:GND.1",
+      "oled:GND",
+      "black",
+      []
+    ],
+    [
+      "esp:22",
+      "oled:SCL",
+      "green",
+      []
+    ],
+    [
+      "esp:21",
+      "oled:SDA",
+      "blue",
+      []
+    ],
+    [
+      "esp:3V3",
+      "relay:VCC",
+      "red",
+      []
+    ],
+    [
+      "esp:GND.1",
+      "relay:GND",
+      "black",
+      []
+    ],
+    [
+      "esp:26",
+      "relay:IN",
+      "orange",
+      []
+    ],
+    [
+      "flowclk:CLK",
+      "esp:25",
+      "purple",
+      []
+    ],
+    [
+      "esp:14",
+      "buzzer:1",
+      "green",
+      []
+    ],
+    [
+      "esp:GND.1",
+      "buzzer:2",
+      "black",
+      []
+    ],
+    [
+      "esp:2",
+      "statusLed:A",
+      "green",
+      []
+    ],
+    [
+      "statusLed:C",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "esp:4",
+      "valveLed:A",
+      "blue",
+      []
+    ],
+    [
+      "valveLed:C",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "esp:12",
+      "anomalyLed:A",
+      "red",
+      []
+    ],
+    [
+      "anomalyLed:C",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "btn1l:1.l",
+      "esp:32",
+      "green",
+      []
+    ],
+    [
+      "btn1l:2.l",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "btn2l:1.l",
+      "esp:33",
+      "blue",
+      []
+    ],
+    [
+      "btn2l:2.l",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "btn5l:1.l",
+      "esp:16",
+      "yellow",
+      []
+    ],
+    [
+      "btn5l:2.l",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "btnPay:1.l",
+      "esp:17",
+      "green",
+      []
+    ],
+    [
+      "btnPay:2.l",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "btnAnom:1.l",
+      "esp:13",
+      "red",
+      []
+    ],
+    [
+      "btnAnom:2.l",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "leakSw:1",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "leakSw:2",
+      "esp:34",
+      "orange",
+      []
+    ],
+    [
+      "leakSw:3",
+      "esp:3V3",
+      "red",
+      []
+    ]
   ],
-  "serialMonitor": { "convertEol": true, "display": "always", "newline": "lf" },
+  "serialMonitor": {
+    "convertEol": true,
+    "display": "always",
+    "newline": "lf"
+  },
   "dependencies": {}
 }

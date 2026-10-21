@@ -10,6 +10,7 @@ import {
   Radio,
   Settings,
   Smartphone,
+  Cpu,
   LogOut,
   X
 } from 'lucide-react';
@@ -18,7 +19,7 @@ import { useApp } from '../../context/AppContext';
 
 export const Sidebar = ({ isMobileOpen, setIsMobileOpen }) => {
   const { user, logout } = useAuth();
-  const { kpis } = useApp();
+  const { kpis, liveStation } = useApp();
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -28,6 +29,7 @@ export const Sidebar = ({ isMobileOpen, setIsMobileOpen }) => {
 
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+    { name: 'Live Station', path: '/live', icon: Cpu, badge: liveStation?.online ? 'LIVE' : 'Wokwi' },
     { name: 'Dispenser Kiosk', path: '/kiosk', icon: Smartphone, badge: 'Mobile' },
     { name: 'Users', path: '/users', icon: Users },
     { name: 'Dispensing', path: '/dispensing', icon: Droplets, badge: 'Pay' },

@@ -1,0 +1,11 @@
+{
+  "name": "aquaallot-backend",
+  "version": "3.0.0",
+  "private": true,
+  "description": "AquaAllot Flask API + MQTT bridge to the Wokwi ESP32",
+  "scripts": {
+    "dev": "node dev.cjs",
+    "start": "node dev.cjs",
+    "fake-esp32": "python ../tools/fake_esp32.py"
+  }
+}

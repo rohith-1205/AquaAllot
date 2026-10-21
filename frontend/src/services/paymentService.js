@@ -16,8 +16,8 @@ export const initializeRazorpayPayment = async ({
   orderId,
   amount,
   keyId = import.meta.env.VITE_RAZORPAY_KEY_ID,
-  userName = 'Arun Kumar',
-  userEmail = 'arun@example.com',
+  userName = 'AquaAllot User',
+  userEmail = 'student@aquaallot.demo',
   onSuccess,
   onFailure
 }) => {

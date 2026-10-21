@@ -13,9 +13,13 @@ export const Alerts = () => {
     severityFilter === 'All' ? true : a.severity === severityFilter
   );
 
-  const handleResolveAlert = (id) => {
-    resolveAlert(id);
-    toast.success(`Alert ${id} acknowledged & marked as resolved.`);
+  const handleResolveAlert = async (id) => {
+    try {
+      await resolveAlert(id);
+      toast.success(`Alert ${id} acknowledged & marked as resolved.`);
+    } catch (err) {
+      toast.error(err.message);
+    }
   };
 
   return (

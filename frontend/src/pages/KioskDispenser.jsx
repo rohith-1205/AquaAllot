@@ -211,7 +211,7 @@ export const KioskDispenser = () => {
           id: `TXN-${Math.floor(1000 + Math.random() * 9000)}`,
           userId: activeUser.id,
           userName: activeUser.name,
-          rfid: activeUser.rfid || 'A1B2C3D4',
+          rfid: activeUser.rfid,
           amount: totalAmount,
           waterLiters: quantityToBuy,
           paymentStatus: 'Paid',
@@ -444,7 +444,7 @@ export const KioskDispenser = () => {
                       <Scan className="w-4 h-4 text-sky-400 absolute left-3.5 top-3.5" />
                       <input
                         type="text"
-                        placeholder="e.g. A1B2C3D4"
+                        placeholder="e.g. 01:02:03:04"
                         value={rfidInput}
                         onChange={(e) => setRfidInput(e.target.value)}
                         className="w-full pl-10 pr-4 py-3 text-xs bg-slate-950 border border-slate-800 rounded-2xl text-white focus:outline-none focus:border-sky-500 uppercase font-mono"

@@ -32,7 +32,37 @@ const axiosInstance = axios.create({
 // Helper for simulated delay in demo mode
 const delay = (ms = 400) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// For actions that MUST reach the real backend (no sample-data fallback).
+// Returns the response body, or throws an Error with the backend's message.
+const request = async (method, url, data, timeout = 8000) => {
+  try {
+    const response = await axiosInstance.request({ method, url, data, timeout });
+    return response.data;
+  } catch (err) {
+    const message =
+      err.response?.data?.message ||
+      'Backend not reachable. Run "npm run dev" inside the backend folder.';
+    throw new Error(message);
+  }
+};
+
+// '01:02:03:04', '01 02 03 04' and '01020304' are the same card
+export const normalizeCard = (uid = '') => uid.toUpperCase().replace(/[^0-9A-Z]/g, '');
+
 export const api = {
+  // ---------- Live Wokwi station + actions (need the real backend) ----------
+  getLive: () => request('get', '/live', undefined, 3000),
+  stationCommand: (stationId, action, params = {}) =>
+    request('post', `/stations/${stationId}/command`, { action, ...params }),
+  checkoutOrder: (orderId) => request('post', `/orders/${orderId}/checkout`, {}, 15000),
+  confirmOrder: (orderId, payment) => request('post', `/orders/${orderId}/confirm`, payment),
+  createUser: (user) => request('post', '/users', user),
+  topUp: (userId, amount) => request('post', `/users/${userId}/topup`, { amount }),
+  resolveAlert: (alertId) => request('post', `/alerts/${alertId}/resolve`),
+  getSettings: () => request('get', '/settings'),
+  updateSettings: (settings) => request('put', '/settings', settings),
+  resetDemo: () => request('post', '/admin/reset_demo'),
+
   // 1. Verify RFID Tag
   verifyRfid: async (rfidUid) => {
     try {
@@ -40,7 +70,10 @@ export const api = {
       return response.data;
     } catch (err) {
       await delay();
-      const matchedUser = initialUsers.find((u) => u.rfid.toUpperCase() === rfidUid.toUpperCase());
+      if (err.response?.status === 404) {
+        return { success: false, authorized: false, message: err.response.data?.message || 'Card not registered' };
+      }
+      const matchedUser = initialUsers.find((u) => normalizeCard(u.rfid) === normalizeCard(rfidUid));
       if (matchedUser) {
         return {
           success: true,
