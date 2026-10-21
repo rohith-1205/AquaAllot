@@ -73,7 +73,6 @@ def seed_demo_data(force=False):
     store.replace_all("anomalies", demo_data.make_anomalies())
     store.replace_all("settings", demo_data.make_settings())
     store.replace_all("orders", [])
-    store.replace_all("topups", [])
     store.replace_all("meta", [{"id": "seed", "version": demo_data.SEED_VERSION}])
     log.info("🌱 Demo data loaded (seed version %s) into %s", demo_data.SEED_VERSION, store.name)
 
@@ -160,52 +159,39 @@ def get_order(order_id):
     return ok({"order": services.get_order(store, order_id)})
 
 
-@app.route("/api/orders/<order_id>/pay", methods=["POST"])
-def pay_order_from_wallet(order_id):
-    """Dashboard 'Pay from wallet' (same rule as the PAY button on the station)."""
-    order, user = services.pay_order(store, order_id, via="Dashboard")
-    bridge.payment_confirmed(order, user, via="Dashboard")
-    return ok({"order": order, "user": services.public_user(user)}, "Paid from wallet. Valve opening at the station.")
-
-
-# =====================================================================
-#   WALLET TOP-UP  (the only way money enters a wallet: Razorpay)
-# =====================================================================
-
-@app.route("/api/users/<user_id>/topup/checkout", methods=["POST"])
-def topup_checkout(user_id):
-    """Step 1: create a Razorpay order for the top-up amount (opens the Razorpay popup)."""
-    amount = services.money(body().get("amount", 0))
-    if amount < services.MIN_TOPUP or amount > services.MAX_TOPUP:
-        raise ServiceError(f"Top-up must be ₹{services.MIN_TOPUP}–₹{services.MAX_TOPUP}")
-    user = store.find_one("users", id=user_id)
-    if not user:
-        return fail("User not found", 404)
+@app.route("/api/orders/<order_id>/checkout", methods=["POST"])
+def checkout_order(order_id):
+    """Step 1: create the Razorpay order for this water order (opens the Razorpay popup on the dashboard)."""
+    order = services.get_order(store, order_id)
+    if order["status"] != "pending":
+        raise ServiceError(f"Order is already {order['status']}")
     try:
-        rzp = payments.create_razorpay_order(amount, notes={"purpose": "wallet top-up", "user_id": user_id})
+        rzp = payments.create_razorpay_order(order["amount"], notes={"aquaallot_order": order_id, "user_id": order["userId"]})
     except Exception as error:
         return fail(f"Razorpay: {error}", 502)
-    topup = services.create_topup(store, user_id, amount, rzp["id"])
-    return ok({"topup": topup, "razorpay": rzp, "user": services.public_user(user)})
+    services.attach_razorpay_order(store, order_id, rzp["id"])
+    user = store.find_one("users", id=order["userId"]) or {}
+    return ok({"razorpay": rzp, "order": order, "user": {"name": user.get("name"), "email": user.get("email")}})
 
 
-@app.route("/api/topups/<topup_id>/confirm", methods=["POST"])
-def topup_confirm(topup_id):
-    """Step 2: after the popup succeeds → verify the Razorpay signature → add money to the wallet."""
+@app.route("/api/orders/<order_id>/confirm", methods=["POST"])
+def confirm_order(order_id):
+    """
+    Step 2: after the Razorpay popup succeeds → verify the signature → mark paid
+    → tell the ESP32 to open the valve.
+    """
     data = body()
-    topup = store.find_one("topups", id=topup_id)
-    if not topup:
-        return fail("Top-up not found", 404)
-    if payments.has_real_keys() and data.get("razorpay_order_id") != topup["razorpayOrderId"]:
-        raise ServiceError("Payment does not belong to this top-up")
+    order = services.get_order(store, order_id)
+    if payments.has_real_keys() and data.get("razorpay_order_id") != order.get("razorpayOrderId"):
+        raise ServiceError("Payment does not belong to this order")
     payment_id, method = verified_payment(data)
-    topup, user = services.complete_topup(store, topup_id, payment_id, method)
-    return ok({"topup": topup, "user": services.public_user(user)}, f"₹{topup['amount']:g} added to {user['name']}'s wallet")
-
-
-@app.route("/api/topups", methods=["GET"])
-def list_topups():
-    return ok({"topups": store.all("topups", limit=limit_arg())})
+    try:
+        payments.ensure_captured(payment_id, order["amount"])   # refunds need a captured payment
+    except Exception as error:
+        log.warning("Could not capture payment %s yet: %s", payment_id, error)
+    order, user = services.pay_order(store, order_id, payment_id, order.get("razorpayOrderId"), method)
+    bridge.payment_confirmed(order, user)
+    return ok({"order": order}, "Payment verified. Valve opening at the station.")
 
 
 # =====================================================================
@@ -245,7 +231,7 @@ def create_user():
         "id": services.new_id("USR"), "name": data["name"], "email": data.get("email", ""),
         "hostelBlock": data.get("hostelBlock", "Hostel Block A"), "roomNo": data.get("roomNo", ""),
         "rfid": card, "rfidCard": data.get("rfidCard", "Registered from dashboard"),
-        "balance": 0.0, "todayUsage": 0.0, "monthlyUsage": 0.0, "totalSpent": 0.0,   # top up via Razorpay
+        "todayUsage": 0.0, "monthlyUsage": 0.0, "totalSpent": 0.0,
         "avgDailyUsage": float(data.get("avgDailyUsage", 2.5)), "usageStdDev": 0.6,
         "dailyQuota": float(data.get("dailyQuota") or services.settings(store).get("dailyQuotaLiters", 10)),
         "status": "Active", "avatar": demo_data.avatar(data["name"]), "createdAt": services.now_iso(),

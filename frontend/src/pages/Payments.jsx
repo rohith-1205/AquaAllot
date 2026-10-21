@@ -1,8 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import toast from 'react-hot-toast';
-import { Search, Download, Wallet, Undo2, Droplets, CreditCard } from 'lucide-react';
+import { Search, Download, Undo2, Droplets, CreditCard, ListChecks } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { api } from '../services/api';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
 import { formatDateTime, rupees } from '../utils/format';
@@ -32,15 +31,7 @@ export const Payments = () => {
   const { transactions, kpis } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
-  const [topups, setTopups] = useState([]);
   const [visibleRows, setVisibleRows] = useState(50); // long lists: show 50 at a time
-
-  useEffect(() => {
-    api
-      .getTopups(50)
-      .then((res) => setTopups(res.topups))
-      .catch(() => setTopups([]));
-  }, [transactions.length]);
 
   const query = searchQuery.toLowerCase();
   const filteredTxns = transactions.filter((t) => {
@@ -50,8 +41,8 @@ export const Payments = () => {
   });
 
   const totalRefunded = transactions.reduce((sum, t) => sum + Number(t.refund || 0), 0);
-  const paidTopups = topups.filter((t) => t.status === 'paid');
-  const topupTotal = paidTopups.reduce((sum, t) => sum + Number(t.amount || 0), 0);
+  const razorpayPayments = transactions.filter((t) => t.razorpayPaymentId);
+  const refunds = transactions.filter((t) => Number(t.refund) > 0);
 
   const handleExportCSV = () => {
     downloadCsv(filteredTxns);
@@ -63,9 +54,9 @@ export const Payments = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-white rounded-3xl border border-slate-100 shadow-sm">
         <div>
-          <h2 className="text-xl font-bold text-slate-900 font-['Outfit']">Payments & Wallets</h2>
+          <h2 className="text-xl font-bold text-slate-900 font-['Outfit']">Razorpay Payments & Refunds</h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Water is paid from prepaid wallets; wallets are topped up with Razorpay (signature verified by the backend).
+            Every order is paid with Razorpay (signature verified by the backend). Unused litres are refunded automatically.
           </p>
         </div>
         <Button onClick={handleExportCSV} variant="outline" icon={Download}>
@@ -77,9 +68,9 @@ export const Payments = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { title: 'Revenue today', value: rupees(kpis.revenueToday), note: `${rupees(kpis.revenueWeek)} in the last 7 days`, icon: Droplets, color: 'text-sky-600 bg-sky-50' },
-          { title: 'Wallet top-ups', value: rupees(topupTotal), note: `${paidTopups.length} Razorpay payments`, icon: CreditCard, color: 'text-indigo-600 bg-indigo-50' },
-          { title: 'Refunded to wallets', value: rupees(totalRefunded), note: 'Unused litres + failed orders', icon: Undo2, color: 'text-violet-600 bg-violet-50' },
-          { title: 'Transactions shown', value: filteredTxns.length, note: 'Newest 200 from the backend', icon: Wallet, color: 'text-emerald-600 bg-emerald-50' }
+          { title: 'Razorpay payments', value: razorpayPayments.length, note: 'Verified by the backend', icon: CreditCard, color: 'text-indigo-600 bg-indigo-50' },
+          { title: 'Refunded via Razorpay', value: rupees(totalRefunded), note: `${refunds.length} refunds (unused litres + failed orders)`, icon: Undo2, color: 'text-violet-600 bg-violet-50' },
+          { title: 'Transactions shown', value: filteredTxns.length, note: 'Newest 200 from the backend', icon: ListChecks, color: 'text-emerald-600 bg-emerald-50' }
         ].map((card) => (
           <div key={card.title} className="p-5 bg-white rounded-2xl border border-slate-100 shadow-sm">
             <div className="flex items-center justify-between">
@@ -159,7 +150,7 @@ export const Payments = () => {
                     </td>
                     <td className="text-slate-600 text-xs">
                       {txn.paymentMethod}
-                      {txn.paidVia && <span className="block text-[10px] text-slate-400">{txn.paidVia}</span>}
+                      {txn.razorpayPaymentId && <span className="block text-[10px] font-mono text-slate-400">{txn.razorpayPaymentId}</span>}
                     </td>
                     <td>
                       <Badge variant={statusVariant(txn.paymentStatus)}>{txn.paymentStatus}</Badge>
@@ -182,41 +173,43 @@ export const Payments = () => {
         )}
       </div>
 
-      {/* Wallet top-ups */}
+      {/* Refunds */}
       <div className="p-6 bg-white rounded-3xl border border-slate-100 shadow-sm space-y-4">
         <h3 className="text-base font-bold text-slate-900 font-['Outfit'] flex items-center gap-2">
-          <CreditCard className="w-5 h-5 text-indigo-500" /> Wallet top-ups (Razorpay)
+          <Undo2 className="w-5 h-5 text-violet-500" /> Razorpay refunds
         </h3>
         <div className="overflow-x-auto">
           <table className="custom-table">
             <thead>
               <tr>
-                <th>Top-up</th>
+                <th>Transaction</th>
                 <th>Student</th>
-                <th>Amount</th>
+                <th>Refund</th>
+                <th>Why</th>
                 <th>Status</th>
-                <th>Razorpay payment</th>
-                <th>Time</th>
+                <th>Razorpay refund</th>
               </tr>
             </thead>
             <tbody>
-              {topups.length === 0 ? (
+              {refunds.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="text-center py-6 text-slate-400">
-                    No top-ups yet. Use “Top up” on the Users page or Live Station.
+                    No refunds yet. They appear when an order is stopped early or never dispenses.
                   </td>
                 </tr>
               ) : (
-                topups.map((topup) => (
-                  <tr key={topup.id}>
-                    <td className="font-mono font-bold text-indigo-600 text-xs">{topup.id}</td>
-                    <td className="font-semibold text-slate-900">{topup.userName}</td>
-                    <td className="font-bold text-emerald-600">{rupees(topup.amount)}</td>
+                refunds.map((txn) => (
+                  <tr key={txn.id}>
+                    <td className="font-mono font-bold text-violet-600 text-xs">{txn.id}</td>
+                    <td className="font-semibold text-slate-900">{txn.userName}</td>
+                    <td className="font-bold text-violet-600">{rupees(txn.refund)}</td>
+                    <td className="text-xs text-slate-600">{txn.refundReason || txn.dispensingStatus}</td>
                     <td>
-                      <Badge variant={topup.status === 'paid' ? 'success' : 'neutral'}>{topup.status === 'paid' ? 'Added' : 'Not completed'}</Badge>
+                      <Badge variant={txn.refundStatus === 'processed' ? 'success' : txn.refundStatus === 'failed' ? 'danger' : 'warning'}>
+                        {txn.refundStatus === 'processed' ? 'Sent' : txn.refundStatus === 'failed' ? 'Failed – do it manually' : 'Sending…'}
+                      </Badge>
                     </td>
-                    <td className="font-mono text-[11px] text-slate-500">{topup.razorpayPaymentId || '—'}</td>
-                    <td className="text-xs text-slate-500 whitespace-nowrap">{formatDateTime(topup.paidAt || topup.createdAt)}</td>
+                    <td className="font-mono text-[11px] text-slate-500">{txn.refundId || txn.refundError || '—'}</td>
                   </tr>
                 ))
               )}

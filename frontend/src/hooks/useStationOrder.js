@@ -7,7 +7,7 @@ import { useApp } from '../context/AppContext';
  * (used by the Dispensing and Kiosk pages) and follow it live.
  *
  *   phase: 'select'     → choose student + litres
- *          'pay'        → order waiting at the station (pay from wallet / top up)
+ *          'pay'        → order waiting at the station (pay with Razorpay)
  *          'dispensing' → valve open, litres arriving from the ESP32
  *          'done'       → valve closed (completed, stopped or refunded)
  *          'lost'       → the station dropped the order (reset / cancelled / restarted)

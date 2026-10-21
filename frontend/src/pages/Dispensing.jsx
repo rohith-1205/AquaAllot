@@ -13,7 +13,7 @@ const MAX_LITERS = 20;
 
 /**
  * Admin "New water order": picks a student + litres and sends the order to the
- * REAL Wokwi station. Payment always comes from the student's wallet.
+ * REAL Wokwi station. Payment is always made with Razorpay.
  */
 export const Dispensing = () => {
   const { users, waterPricePerLiter } = useApp();
@@ -38,7 +38,7 @@ export const Dispensing = () => {
             <Radio className="w-4 h-4 animate-pulse" /> Sends a real order to the Wokwi ESP32
           </div>
           <h2 className="text-2xl sm:text-3xl font-extrabold font-['Outfit']">New Water Order</h2>
-          <p className="text-xs sm:text-sm text-slate-300 mt-1">Pick a student and litres → pay from their wallet → watch the valve open in Wokwi.</p>
+          <p className="text-xs sm:text-sm text-slate-300 mt-1">Pick a student and litres → pay with Razorpay → watch the valve open in Wokwi.</p>
         </div>
         <div
           className={`px-4 py-2 rounded-2xl text-xs font-bold shrink-0 ${
@@ -74,7 +74,7 @@ export const Dispensing = () => {
             >
               {activeUsers.map((u) => (
                 <option key={u.id} value={u.id}>
-                  {u.name} · wallet {rupees(u.balance)} · today {u.todayUsage} L
+                  {u.name} · today {u.todayUsage} L
                 </option>
               ))}
             </select>
@@ -122,8 +122,8 @@ export const Dispensing = () => {
               <span className="text-lg text-sky-600 font-['Outfit'] font-black">{rupees(total)}</span>
             </div>
             <div className="flex justify-between text-slate-600">
-              <span>Wallet of {selectedUser?.name}</span>
-              <span className={`font-bold ${selectedUser?.balance >= total ? 'text-emerald-600' : 'text-rose-600'}`}>{rupees(selectedUser?.balance)}</span>
+              <span>Paid with</span>
+              <span className="font-bold text-indigo-600">Razorpay</span>
             </div>
           </div>
 

@@ -20,7 +20,7 @@ import threading
 
 log = logging.getLogger("aquaallot.store")
 
-COLLECTIONS = ["users", "stations", "transactions", "topups", "alerts", "anomalies", "orders", "settings", "meta"]
+COLLECTIONS = ["users", "stations", "transactions", "alerts", "anomalies", "orders", "settings", "meta"]
 
 
 class Store:

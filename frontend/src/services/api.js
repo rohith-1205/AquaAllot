@@ -53,16 +53,14 @@ export const api = {
   getAnalytics: () => request('get', '/analytics'),
   getSettings: () => request('get', '/settings'),
   getUserUsage: (userId) => request('get', `/users/${userId}/usage`),
-  getTopups: (limit = 100) => request('get', `/topups?limit=${limit}`),
   verifyRfid: (rfidUid) => request('post', '/verify_rfid', { rfid_uid: rfidUid }),
 
   // ---------- Live Wokwi station ----------
   stationCommand: (stationId, action, params = {}) => request('post', `/stations/${stationId}/command`, { action, ...params }),
-  payOrderFromWallet: (orderId) => request('post', `/orders/${orderId}/pay`),
 
-  // ---------- Wallet top-up (Razorpay) ----------
-  topupCheckout: (userId, amount) => request('post', `/users/${userId}/topup/checkout`, { amount }, 15000),
-  topupConfirm: (topupId, payment) => request('post', `/topups/${topupId}/confirm`, payment),
+  // ---------- Razorpay payment for a station order ----------
+  checkoutOrder: (orderId) => request('post', `/orders/${orderId}/checkout`, {}, 15000),
+  confirmOrder: (orderId, payment) => request('post', `/orders/${orderId}/confirm`, payment, 20000),
 
   // ---------- Admin ----------
   createUser: (user) => request('post', '/users', user),

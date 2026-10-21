@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
-  CreditCard,
   Droplets,
   ShieldAlert,
   Building2
@@ -19,15 +18,13 @@ import {
 import { useApp } from '../context/AppContext';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
-import { TopUpModal } from '../components/common/TopUpModal';
 import { api } from '../services/api';
 import { formatDateTime, rupees } from '../utils/format';
 
 export const UserDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { users, transactions, anomalies, analytics, refresh } = useApp();
-  const [isTopUpModalOpen, setIsTopUpModalOpen] = useState(false);
+  const { users, transactions, anomalies, analytics } = useApp();
   const [weeklyUsage, setWeeklyUsage] = useState([]);   // real litres per day from the backend
 
   const user = users.find((u) => u.id === id) || users[0];
@@ -56,9 +53,6 @@ export const UserDetails = () => {
           <span>Back to Student Directory</span>
         </button>
         <div className="flex items-center gap-2">
-          <Button icon={CreditCard} onClick={() => setIsTopUpModalOpen(true)}>
-            Top up wallet (Razorpay)
-          </Button>
           <Link to="/dispensing">
             <Button variant="secondary" icon={Droplets}>
               Purchase Water
@@ -94,10 +88,10 @@ export const UserDetails = () => {
           </div>
         </div>
 
-        {/* Prepaid Wallet Balance Highlight */}
+        {/* Today's usage highlight */}
         <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 text-right shrink-0">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Prepaid Balance</span>
-          <span className="text-3xl font-black text-emerald-400 font-['Outfit']">{rupees(user.balance)}</span>
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Used today</span>
+          <span className="text-3xl font-black text-cyan-300 font-['Outfit']">{user.todayUsage} L</span>
         </div>
       </div>
 
@@ -120,7 +114,7 @@ export const UserDetails = () => {
         <div className="p-5 bg-white rounded-2xl border border-slate-100 shadow-sm">
           <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Payments Done</span>
           <h3 className="text-2xl font-black text-emerald-600 font-['Outfit'] mt-2">{rupees(user.totalSpent)}</h3>
-          <p className="text-xs text-slate-500 mt-1">Charged from the wallet</p>
+          <p className="text-xs text-slate-500 mt-1">Paid with Razorpay (after refunds)</p>
         </div>
 
         <div className="p-5 bg-white rounded-2xl border border-slate-100 shadow-sm">
@@ -230,8 +224,6 @@ export const UserDetails = () => {
         </div>
       </div>
 
-      {/* Modal for Balance Add */}
-      <TopUpModal user={isTopUpModalOpen ? user : null} onClose={() => setIsTopUpModalOpen(false)} onDone={refresh} />
     </div>
   );
 };

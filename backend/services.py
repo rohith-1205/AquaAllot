@@ -5,17 +5,18 @@ Both the HTTP routes (dashboard) and the MQTT bridge (Wokwi ESP32) call
 these functions, so a payment made on the dashboard and a payment made
 with the PAY button follow exactly the same rules.
 
-Money rules (prepaid wallet):
-    • Water is ALWAYS paid from the student's wallet.
-    • Money gets INTO the wallet only through a verified Razorpay top-up.
-    • Paying an order reserves the full amount; when the valve closes the
-      student is charged only for the litres actually dispensed and the
-      rest goes back to the wallet. A stuck order is refunded completely.
+Money rules (Razorpay only – there is no wallet):
+    • Every order is paid with Razorpay: "Pay with Razorpay" on the dashboard,
+      or PAY on the Wokwi station (which opens the Razorpay checkout on the
+      Live Station page). The backend verifies the signature before the valve opens.
+    • When the valve closes the student is charged only for the litres actually
+      dispensed; the rest is refunded automatically through Razorpay's refund API.
+      A paid order that never dispenses is refunded completely.
 
 Life of one water order:
 
     check_card() → create_order() → pay_order() → finish_order()   (or fail_order() → refund)
-     (RFID tap)    (1/2/5 L)        (wallet)       (valve closed)
+     (RFID tap)    (1/2/5 L)        (Razorpay)     (valve closed)
 """
 
 import functools
@@ -27,7 +28,6 @@ from datetime import datetime, timedelta
 log = logging.getLogger("aquaallot.services")
 
 MAX_LITERS_PER_ORDER = 20
-MIN_TOPUP, MAX_TOPUP = 10, 5000         # ₹ per Razorpay top-up
 STUCK_ORDER_SECONDS = 60                # paid, but no water reported for this long → refund
 PENDING_ORDER_MINUTES = 15              # unpaid orders expire after this
 HISTORY_DAYS = 30                       # how far back the usage baseline looks
@@ -108,7 +108,7 @@ def public_user(user):
     if not user:
         return None
     return {
-        "id": user["id"], "name": user["name"], "balance": money(user.get("balance")),
+        "id": user["id"], "name": user["name"],
         "avatar": user.get("avatar"), "hostelBlock": user.get("hostelBlock"),
         "todayUsage": user.get("todayUsage", 0), "rfid": user.get("rfid"), "email": user.get("email"),
     }
@@ -238,6 +238,7 @@ def create_order(store, user, liters, station_id, source):
         "status": "pending",                     # pending → paid → completed / stopped / failed (or cancelled)
         "warning": warning,
         "txnId": None, "dispensedLiters": 0.0, "charged": 0.0, "refund": 0.0,
+        "razorpayOrderId": None, "payRequestedAt": None,
         "createdAt": now_iso(), "paidAt": None,
     }
     store.insert("orders", order)
@@ -261,92 +262,84 @@ def cancel_order(store, order_id):
 
 
 # =====================================================================
-#   4. Paying an order (always from the wallet)
+#   4. Paying an order (Razorpay only)
 # =====================================================================
 
 @atomic
-def pay_order(store, order_id, via):
+def request_payment(store, order_id):
     """
-    Take the order amount from the wallet (reserved until the valve closes).
-    via = 'Station PAY button' or 'Dashboard'.
+    PAY was pressed on the Wokwi station. Nothing is charged here: the
+    Live Station page sees `payRequestedAt` and opens the Razorpay checkout.
     """
     order = get_order(store, order_id)
     if order["status"] != "pending":
         raise ServiceError(f"Order is {order['status']}")
+    return store.update("orders", {"id": order_id}, set={"payRequestedAt": now_iso()})
 
+
+@atomic
+def attach_razorpay_order(store, order_id, razorpay_order_id):
+    order = get_order(store, order_id)
+    if order["status"] != "pending":
+        raise ServiceError(f"Order is already {order['status']}")
+    return store.update("orders", {"id": order_id}, set={"razorpayOrderId": razorpay_order_id})
+
+
+@atomic
+def pay_order(store, order_id, payment_id, razorpay_order_id, method="Razorpay"):
+    """
+    Mark the order as paid. Only call this AFTER the Razorpay signature was
+    verified (app.py does that). Creates the transaction for the full amount;
+    finish_order() later refunds any litres that were not dispensed.
+    """
+    order = get_order(store, order_id)
+    if order["status"] != "pending":
+        raise ServiceError(f"Order is {order['status']}")
     user = store.find_one("users", id=order["userId"])
     if not user:
         raise ServiceError("User not found")
-    if money(user.get("balance")) < order["amount"]:
-        raise ServiceError("Low wallet balance")
-
-    user = store.update("users", {"id": user["id"]}, inc={"balance": -order["amount"]})
 
     transaction = {
         "id": new_id("TXN"),
         "userId": user["id"], "userName": user["name"], "hostelBlock": user.get("hostelBlock"),
         "rfid": user.get("rfid"),
         "amount": order["amount"], "waterLiters": order["liters"], "refund": 0.0,
-        "paymentStatus": "Paid", "dispensingStatus": "Dispensing",
-        "paymentMethod": "Wallet", "paidVia": via,
+        "refundStatus": None, "refundId": None,
+        "paymentStatus": "Paid", "dispensingStatus": "Dispensing", "paymentMethod": method,
+        "razorpayPaymentId": payment_id, "razorpayOrderId": razorpay_order_id,
         "orderId": order["id"], "stationId": order["stationId"], "timestamp": now_iso(),
     }
     store.insert("transactions", transaction)
-
     order = store.update("orders", {"id": order_id}, set={
         "status": "paid", "paidAt": now_iso(), "txnId": transaction["id"],
+        "razorpayOrderId": razorpay_order_id, "razorpayPaymentId": payment_id, "paymentMethod": method,
     })
-    log.info("✅ Order %s paid from wallet via %s (₹%.0f, wallet now ₹%.0f)", order_id, via, order["amount"], user["balance"])
+    log.info("✅ Order %s paid by %s (₹%.0f, payment %s)", order_id, method, order["amount"], payment_id)
     return order, user
 
 
 # =====================================================================
-#   5. Wallet top-ups (Razorpay)
+#   5. Finishing, refunds and stuck orders
 # =====================================================================
 
-@atomic
-def create_topup(store, user_id, amount, razorpay_order_id):
-    amount = money(amount)
-    if amount < MIN_TOPUP or amount > MAX_TOPUP:
-        raise ServiceError(f"Top-up must be ₹{MIN_TOPUP}–₹{MAX_TOPUP}")
-    user = store.find_one("users", id=user_id)
-    if not user:
-        raise ServiceError("User not found")
-    topup = {
-        "id": new_id("TOP"), "userId": user["id"], "userName": user["name"],
-        "amount": amount, "status": "pending", "method": None,
-        "razorpayOrderId": razorpay_order_id, "razorpayPaymentId": None,
-        "createdAt": now_iso(), "paidAt": None,
-    }
-    store.insert("topups", topup)
-    return topup
-
-
-@atomic
-def complete_topup(store, topup_id, payment_id, method):
-    """Money arrives in the wallet. Only call this after the Razorpay signature was verified."""
-    topup = store.find_one("topups", id=topup_id)
-    if not topup:
-        raise ServiceError("Top-up not found")
-    if topup["status"] != "pending":
-        raise ServiceError("Top-up already used")
-    user = store.update("users", {"id": topup["userId"]}, inc={"balance": topup["amount"]})
-    topup = store.update("topups", {"id": topup_id}, set={
-        "status": "paid", "method": method, "razorpayPaymentId": payment_id, "paidAt": now_iso(),
+def _queue_refund(store, order, amount, reason):
+    """
+    Remember that `amount` must go back to the student's Razorpay payment.
+    process_refunds() (background watchdog) sends it to Razorpay and retries on errors.
+    """
+    if amount <= 0:
+        return
+    store.update("transactions", {"id": order["txnId"]}, set={
+        "refund": amount, "refundStatus": "pending", "refundReason": reason, "refundAttempts": 0,
     })
-    log.info("💳 Top-up %s: ₹%.0f added to %s's wallet (now ₹%.0f)", topup_id, topup["amount"], user["name"], user["balance"])
-    return topup, user
 
-
-# =====================================================================
-#   6. Finishing, refunds and stuck orders
-# =====================================================================
 
 @atomic
 def finish_order(store, order_id, liters, result="done", reason=""):
     """
     Called when the valve closes. result = 'done' | 'stopped' | 'anomaly'.
-    Charges only the litres actually dispensed and refunds the rest to the wallet.
+    The student is charged only for the litres actually dispensed;
+    the rest is refunded to their Razorpay payment.
     """
     order = get_order(store, order_id)
     if order["status"] in ("completed", "stopped", "failed"):
@@ -362,11 +355,11 @@ def finish_order(store, order_id, liters, result="done", reason=""):
     finished_ok = result == "done"
 
     user = store.update("users", {"id": order["userId"]}, inc={
-        "balance": refund, "todayUsage": dispensed, "monthlyUsage": dispensed, "totalSpent": charged,
+        "todayUsage": dispensed, "monthlyUsage": dispensed, "totalSpent": charged,
     })
     store.update("stations", {"id": order["stationId"]}, inc={"todayUsage": dispensed})
     store.update("transactions", {"id": order["txnId"]}, set={
-        "amount": charged, "waterLiters": dispensed, "refund": refund,
+        "amount": charged, "waterLiters": dispensed,
         "paymentStatus": "Paid" if refund == 0 else "Partly refunded",
         "dispensingStatus": "Completed" if finished_ok else f"Stopped: {reason or result}",
     })
@@ -374,16 +367,17 @@ def finish_order(store, order_id, liters, result="done", reason=""):
         "status": "completed" if finished_ok else "stopped",
         "dispensedLiters": dispensed, "charged": charged, "refund": refund,
     })
+    _queue_refund(store, order, refund, f"{order['liters'] - charged_liters:g} L not dispensed")
 
     if not finished_ok:
         raise_alert(
             store,
             severity="Critical" if result == "anomaly" else "Warning",
             title="Dispensing Stopped" if result == "stopped" else "Anomaly During Dispensing",
-            description=f"{order['userName']}: {reason or result} after {dispensed} L of {order['liters']:g} L. ₹{refund:g} refunded to wallet.",
+            description=f"{order['userName']}: {reason or result} after {dispensed} L of {order['liters']:g} L. ₹{refund:g} is being refunded via Razorpay.",
             station_id=order["stationId"], user_id=order["userId"],
         )
-    log.info("💧 Order %s finished: %.2f L, charged ₹%.2f, refunded ₹%.2f (%s)", order_id, dispensed, charged, refund, result)
+    log.info("💧 Order %s finished: %.2f L, charged ₹%.2f, refund ₹%.2f (%s)", order_id, dispensed, charged, refund, result)
     return {"order": order, "user": user, "charged": charged, "refund": refund}
 
 
@@ -393,28 +387,60 @@ def fail_order(store, order_id, reason):
     order = get_order(store, order_id)
     if order["status"] != "paid":
         return None
-    user = store.update("users", {"id": order["userId"]}, inc={"balance": order["amount"]})
     store.update("transactions", {"id": order["txnId"]}, set={
-        "amount": 0.0, "waterLiters": 0.0, "refund": order["amount"],
+        "amount": 0.0, "waterLiters": 0.0,
         "paymentStatus": "Refunded", "dispensingStatus": f"Failed: {reason}",
     })
-    order = store.update("orders", {"id": order_id}, set={"status": "failed", "refund": order["amount"]})
+    order = store.update("orders", {"id": order_id}, set={"status": "failed", "charged": 0.0, "refund": order["amount"]})
+    _queue_refund(store, order, order["amount"], reason)
     raise_alert(
         store, "Warning", "Order Refunded",
-        f"{order['userName']}'s order {order_id} ({order['liters']:g} L) never dispensed – {reason}. ₹{order['amount']:g} returned to wallet.",
+        f"{order['userName']}'s order {order_id} ({order['liters']:g} L) never dispensed – {reason}. ₹{order['amount']:g} is being refunded via Razorpay.",
         order["stationId"], order["userId"],
     )
-    return order, user
+    return order, store.find_one("users", id=order["userId"])
 
 
-def housekeeping(store, last_activity):
+MAX_REFUND_ATTEMPTS = 3
+
+
+def process_refunds(store, send_refund):
+    """
+    Send waiting refunds to Razorpay. `send_refund(payment_id, amount)` returns
+    the Razorpay refund id or raises an error (payments.refund_payment).
+    Returns the transactions that changed, for the live log.
+    """
+    changed = []
+    for txn in store.find("transactions", refundStatus="pending"):
+        try:
+            refund_id = send_refund(txn.get("razorpayPaymentId"), txn["refund"])
+            changed.append(store.update("transactions", {"id": txn["id"]}, set={
+                "refundStatus": "processed", "refundId": refund_id, "refundedAt": now_iso(),
+            }))
+            log.info("💸 Refund of ₹%.2f for %s sent to Razorpay (%s)", txn["refund"], txn["id"], refund_id)
+        except Exception as error:   # network / Razorpay error → try again later
+            attempts = int(txn.get("refundAttempts") or 0) + 1
+            failed = attempts >= MAX_REFUND_ATTEMPTS
+            changed.append(store.update("transactions", {"id": txn["id"]}, set={
+                "refundAttempts": attempts, "refundError": str(error)[:200],
+                "refundStatus": "failed" if failed else "pending",
+            }))
+            if failed:
+                raise_alert(store, "Critical", "Refund Failed",
+                            f"Could not refund ₹{txn['refund']:g} to {txn['userName']} ({txn['id']}): {error}. Refund it from the Razorpay dashboard.",
+                            txn.get("stationId"), txn.get("userId"))
+    return changed
+
+
+def housekeeping(store, last_activity, send_refund=None):
     """
     Runs every few seconds (station_bridge watchdog):
       • new day → reset today's usage
       • unpaid orders older than 15 min → cancelled
       • paid orders with no water for 60 s → failed + full refund
+      • waiting refunds → sent to Razorpay
     `last_activity` = {order_id: epoch seconds of the last progress message}
-    Returns the refunded orders so the bridge can log them.
+    Returns the failed (refunded) orders so the bridge can log them.
     """
     roll_over_day(store)
     refunded = []
@@ -431,6 +457,8 @@ def housekeeping(store, last_activity):
                 result = fail_order(store, order["id"], "no water flow reported by the station")
                 if result:
                     refunded.append(result[0])
+    if send_refund:
+        process_refunds(store, send_refund)
     return refunded
 
 

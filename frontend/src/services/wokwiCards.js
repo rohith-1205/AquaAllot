@@ -1,8 +1,8 @@
 // The cards built into the Wokwi MFRC522 RFID reader (click the reader in Wokwi to pick one).
 // Who owns each card is decided by the backend (backend/demo_data.py).
 export const WOKWI_CARDS = [
-  { uid: '01:02:03:04', label: 'Blue card', key: 'b', gradient: 'from-blue-500 to-indigo-600', hint: 'Happy path – wallet has money' },
-  { uid: '11:22:33:44', label: 'Green card', key: 'g', gradient: 'from-emerald-500 to-teal-600', hint: 'Low wallet → top up with Razorpay' },
+  { uid: '01:02:03:04', label: 'Blue card', key: 'b', gradient: 'from-blue-500 to-indigo-600', hint: 'Normal purchase – pay with Razorpay' },
+  { uid: '11:22:33:44', label: 'Green card', key: 'g', gradient: 'from-emerald-500 to-teal-600', hint: 'Press PAY in Wokwi → Razorpay opens here' },
   { uid: '55:66:77:88', label: 'Yellow card', key: 'y', gradient: 'from-amber-400 to-orange-500', hint: '5 L → over-usage alert for the admin' },
   { uid: 'C0:FF:EE:99', label: 'Key fob', key: 'k', gradient: 'from-orange-500 to-red-500', hint: 'Suspended account' },
   { uid: 'AA:BB:CC:DD', label: 'Red card', key: 'r', gradient: 'from-rose-500 to-pink-600', hint: 'Not registered → denied' },

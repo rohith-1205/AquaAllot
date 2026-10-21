@@ -32,7 +32,7 @@ export const Sidebar = ({ isMobileOpen, setIsMobileOpen }) => {
     { name: 'Live Station', path: '/live', icon: Cpu, badge: liveStation?.online ? 'LIVE' : 'Wokwi' },
     { name: 'Dispenser Kiosk', path: '/kiosk', icon: Smartphone, badge: 'Mobile' },
     { name: 'Users', path: '/users', icon: Users },
-    { name: 'New Order', path: '/dispensing', icon: Droplets, badge: 'Wallet' },
+    { name: 'New Order', path: '/dispensing', icon: Droplets, badge: 'Pay' },
     { name: 'Payments', path: '/payments', icon: CreditCard },
     { name: 'Analytics', path: '/analytics', icon: BarChart3 },
     { name: 'Alerts', path: '/alerts', icon: AlertTriangle, count: kpis?.totalAlertsCount },

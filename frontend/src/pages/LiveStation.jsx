@@ -1,5 +1,5 @@
 import React from 'react';
-import { Cpu, User, Wallet, AlertTriangle, RotateCcw, ExternalLink, Sparkles } from 'lucide-react';
+import { Cpu, User, Droplets, AlertTriangle, RotateCcw, ExternalLink, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useApp } from '../context/AppContext';
 import { STATE_STYLE } from '../services/wokwiCards';
@@ -146,9 +146,9 @@ const CustomerCard = ({ station }) => {
       </div>
       <div className="text-right">
         <p className="text-[10px] font-bold uppercase text-slate-400 flex items-center gap-1 justify-end">
-          <Wallet className="w-3 h-3" /> Wallet
+          <Droplets className="w-3 h-3" /> Today
         </p>
-        <p className="text-xl font-extrabold text-emerald-600 font-['Outfit']">₹{Number(user.balance).toFixed(0)}</p>
+        <p className="text-xl font-extrabold text-sky-600 font-['Outfit']">{Number(user.todayUsage || 0)} L</p>
       </div>
     </div>
   );

@@ -14,7 +14,7 @@ const QUANTITIES = [1, 2, 5, 10];
 /**
  * Full-screen kiosk for a phone/tablet next to the dispenser.
  * Student identifies (name or RFID UID) → chooses litres → order goes to the real
- * Wokwi station → pays from the wallet (or tops up with Razorpay) → watches the tank fill.
+ * Wokwi station → pays with Razorpay → watches the tank fill.
  */
 export const KioskDispenser = () => {
   const { users, waterPricePerLiter } = useApp();
@@ -115,7 +115,7 @@ export const KioskDispenser = () => {
                 >
                   {activeUsers.map((u) => (
                     <option key={u.id} value={u.id}>
-                      {u.name} ({u.hostelBlock}) · wallet {rupees(u.balance)}
+                      {u.name} ({u.hostelBlock})
                     </option>
                   ))}
                 </select>
@@ -138,7 +138,7 @@ export const KioskDispenser = () => {
                   </div>
                   {rfidUser && (
                     <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-xs text-emerald-400 flex items-center gap-2">
-                      <ShieldCheck className="w-4 h-4 shrink-0" /> {rfidUser.name} · wallet {rupees(rfidUser.balance)}
+                      <ShieldCheck className="w-4 h-4 shrink-0" /> {rfidUser.name} · {rfidUser.hostelBlock}
                     </div>
                   )}
                 </form>
@@ -168,10 +168,8 @@ export const KioskDispenser = () => {
               </div>
               <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 flex items-center justify-between">
                 <div>
-                  <span className="text-[11px] text-slate-400 block">Wallet</span>
-                  <span className={`text-base font-bold ${student && student.balance >= total ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {student ? rupees(student.balance) : '—'}
-                  </span>
+                  <span className="text-[11px] text-slate-400 block">Used today</span>
+                  <span className="text-base font-bold text-emerald-400">{student ? `${student.todayUsage} L` : '—'}</span>
                 </div>
                 <div className="text-right">
                   <span className="text-[11px] text-slate-400 block">To pay</span>
@@ -224,7 +222,7 @@ export const KioskDispenser = () => {
       </main>
 
       <footer className="p-3 text-center text-[10px] text-slate-500 border-t border-slate-900">
-        AquaAllot kiosk · STN-001 (Wokwi) · prepaid wallet · Razorpay top-ups verified by the backend
+        AquaAllot kiosk · STN-001 (Wokwi) · Razorpay payments verified by the backend · unused litres refunded
       </footer>
     </div>
   );

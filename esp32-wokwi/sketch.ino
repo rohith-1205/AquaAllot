@@ -23,8 +23,10 @@
 //  be reached, the station still works in OFFLINE MODE with local cards,
 //  and the offline cash sales are uploaded once the cloud is back.
 //
-//  Money: water is always paid from the student's prepaid wallet (PAY
-//  button or dashboard). Wallets are topped up with Razorpay on the dashboard.
+//  Money: every order is paid with Razorpay. Pressing PAY here opens the
+//  Razorpay checkout on the dashboard's Live Station page; the valve opens
+//  only after the backend has verified the payment. Unused litres are
+//  refunded automatically through Razorpay.
 //
 //  Demo cards (built into the Wokwi RFID reader - click it to choose):
 //    Blue   01:02:03:04  Rohith        Green  11:22:33:44  Deepankishor
@@ -40,7 +42,7 @@ const char* MQTT_BROKER   = "test.mosquitto.org";
 const int   MQTT_PORT     = 1883;
 const char* TOPIC_ROOT    = "aquaallot-demo-rohith1205";   // MUST match MQTT_TOPIC_ROOT in the backend
 const char* STATION_ID    = "STN-001";
-const char* FIRMWARE      = "3.1.0";
+const char* FIRMWARE      = "3.2.0";
 
 // ---------------- PIN DEFINITIONS ----------------
 
@@ -106,8 +108,7 @@ enum SystemState {
   CHECKING_CARD,        // asked backend "who is this card?"
   CHOOSE_QUANTITY,      // 1 / 2 / 5 L menu
   CREATING_ORDER,       // asked backend to create the order
-  WAIT_PAYMENT,         // PAY button or "Pay from wallet" on the dashboard
-  CONFIRMING_PAYMENT,   // asked backend to take money from the wallet
+  WAIT_PAYMENT,         // PAY → Razorpay opens on the dashboard
   DISPENSING,           // valve open, counting litres
   COMPLETE,             // done screen
   ALERT,                // valve closed because of an anomaly
@@ -121,19 +122,17 @@ SystemState state = WAIT_CARD;
 String cardUid = "";
 String userId = "";
 String userName = "";
-float walletBalance = 0;
 float pricePerLiter = OFFLINE_PRICE;
 
 String orderId = "";
 float orderLiters = 0;
 float orderAmount = 0;
-bool walletEnough = false;
 String payMethod = "";
 String txnLabel = "";
 String paymentNote = "";
 String alertReason = "";
 String orderWarning = "";      // e.g. "Above normal use" (admin is alerted)
-float refundAmount = 0;        // unused litres returned to the wallet
+float refundAmount = 0;        // unused litres refunded through Razorpay
 
 float dispensedLiters = 0;
 float flowLpm = 0;
@@ -189,7 +188,6 @@ const char* stateName() {
     case CHOOSE_QUANTITY:    return "CARD_OK";
     case CREATING_ORDER:     return "CARD_OK";
     case WAIT_PAYMENT:       return "AWAITING_PAYMENT";
-    case CONFIRMING_PAYMENT: return "AWAITING_PAYMENT";
     case DISPENSING:         return "DISPENSING";
     case COMPLETE:           return "COMPLETE";
     case ALERT:              return "ALERT";
@@ -322,8 +320,6 @@ void showQuantityMenu() {
   oledClear();
   display.print("Hi ");
   display.println(userName);
-  display.print("Wallet: Rs ");
-  display.println(walletBalance, 0);
   display.println("---------------------");
   display.println("Choose water:");
   display.print("[1]  1 L   Rs ");  display.println(1 * pricePerLiter, 0);
@@ -340,14 +336,9 @@ void showPayment() {
   display.print(orderLiters, 0);
   display.println(" L");
   display.println("---------------------");
-  display.print("Wallet: Rs ");
-  display.println(walletBalance, 0);
-  if (walletEnough) {
-    display.println("[PAY] = pay by wallet");
-  } else {
-    display.println("Wallet too low:");
-    display.println("top up on dashboard");
-  }
+  display.println("[PAY] = pay with");
+  display.println("Razorpay (opens on");
+  display.println("the dashboard)");
   if (orderWarning.length()) {
     display.print("! ");
     display.println(orderWarning);
@@ -385,9 +376,8 @@ void showComplete() {
   display.println("---------------------");
   display.print("Delivered: ");  display.print(dispensedLiters, 2);  display.println(" L");
   display.print("Paid by  : ");  display.println(payMethod);
-  display.print("Wallet   : Rs ");  display.println(walletBalance, 0);
   if (refundAmount > 0) {
-    display.print("Refunded : Rs ");  display.println(refundAmount, 2);
+    display.print("Refund   : Rs ");  display.println(refundAmount, 2);
   }
   display.println(txnLabel.length() ? txnLabel : String("Saving..."));
   display.display();
@@ -401,7 +391,7 @@ void showAlert() {
   if (refundAmount > 0) {
     display.print("Refund Rs ");
     display.print(refundAmount, 2);
-    display.println(" to wallet");
+    display.println(" (Razorpay)");
   } else {
     display.println();
   }
@@ -428,8 +418,7 @@ void clearSession() {
   cardUid = userId = userName = "";
   orderId = payMethod = txnLabel = paymentNote = alertReason = orderWarning = "";
   refundAmount = 0;
-  walletBalance = orderLiters = orderAmount = 0;
-  walletEnough = false;
+  orderLiters = orderAmount = 0;
   dispensedLiters = flowLpm = 0;
   noInterrupts();
   flowPulses = 0;
@@ -494,7 +483,7 @@ String offlineUser(String uid) {
   return "";
 }
 
-void onCardResult(bool ok, String id, String name, float balance, String reason) {
+void onCardResult(bool ok, String id, String name, String reason) {
   if (state != CHECKING_CARD && state != WAIT_CARD && state != NOTICE)
     return;   // late reply, ignore
 
@@ -508,7 +497,6 @@ void onCardResult(bool ok, String id, String name, float balance, String reason)
 
   userId = id;
   userName = name;
-  walletBalance = balance;
   Serial.print("[RFID] AUTHENTICATED: ");
   Serial.println(userName);
   beep(100);
@@ -535,9 +523,9 @@ void onCardScanned(String uid) {
   // OFFLINE MODE
   String name = offlineUser(uid);
   if (name.length())
-    onCardResult(true, "offline", name, 0, "");
+    onCardResult(true, "offline", name, "");
   else
-    onCardResult(false, "", "", 0, "Unknown card");
+    onCardResult(false, "", "", "Unknown card");
 }
 
 String uidToString() {
@@ -570,8 +558,8 @@ void checkRFID() {
 //               STEP 2 - QUANTITY + ORDER
 // =====================================================
 
-void onOrderReady(String id, String uid, String name, float balance,
-                  float liters, float amount, bool walletOk, bool fromDashboard, String warning) {
+void onOrderReady(String id, String uid, String name,
+                  float liters, float amount, bool fromDashboard, String warning) {
   if (fromDashboard) {
     // Admin started an order on the dashboard: only accept it when nobody is at the tap
     if (state != WAIT_CARD && state != NOTICE)
@@ -583,10 +571,8 @@ void onOrderReady(String id, String uid, String name, float balance,
   }
 
   orderId = id;
-  walletBalance = balance;
   orderLiters = liters;
   orderAmount = amount;
-  walletEnough = walletOk;
   paymentNote = "";
   orderWarning = warning;
   if (warning.length()) {
@@ -619,7 +605,7 @@ void requestOrder(float liters) {
   }
 
   // OFFLINE MODE
-  onOrderReady("", userId, userName, 0, liters, liters * OFFLINE_PRICE, true, false, "");
+  onOrderReady("", userId, userName, liters, liters * OFFLINE_PRICE, false, "");
 }
 
 void handleQuantity() {
@@ -636,11 +622,10 @@ void handleQuantity() {
 
 void startDispensing();
 
-void onPaymentOk(String method, float balance) {
-  if (state != WAIT_PAYMENT && state != CONFIRMING_PAYMENT)
+void onPaymentOk(String method) {
+  if (state != WAIT_PAYMENT)
     return;
   payMethod = method;
-  walletBalance = balance;
   Serial.print("[PAYMENT] SUCCESS via ");
   Serial.println(payMethod);
   beep(150);
@@ -648,14 +633,20 @@ void onPaymentOk(String method, float balance) {
 }
 
 void onPaymentFailed(String reason) {
-  if (state != CONFIRMING_PAYMENT)
+  if (state != WAIT_PAYMENT)
     return;
   Serial.print("[PAYMENT] FAILED: ");
   Serial.println(reason);
   paymentNote = reason;
-  walletEnough = false;   // screen now says "top up on dashboard"
   beep(300);
-  setState(WAIT_PAYMENT);
+  showPayment();
+}
+
+// The backend opened the Razorpay checkout on the dashboard
+void onPaymentPending() {
+  if (state != WAIT_PAYMENT)
+    return;
+  paymentNote = "Pay on dashboard";
   showPayment();
 }
 
@@ -664,11 +655,11 @@ void handlePayment() {
     if (cloudOnline() && orderId.length()) {
       JsonDocument doc;
       doc["order_id"] = orderId;
-      sendEvent("pay_wallet", doc);
-      setState(CONFIRMING_PAYMENT);
-      showMessage("CHECKING WALLET...", userName, "Rs " + String(orderAmount, 0), "Please wait");
+      sendEvent("pay_request", doc);           // dashboard opens Razorpay
+      paymentNote = "Opening Razorpay...";
+      showPayment();
     } else {
-      onPaymentOk("Cash (offline)", walletBalance);   // OFFLINE MODE
+      onPaymentOk("Cash (offline)");           // OFFLINE MODE
     }
     return;
   }
@@ -826,15 +817,14 @@ void handleDispensing() {
 //          STEP 5 - REPLIES AFTER DISPENSING
 // =====================================================
 
-// The backend saved the order: shows the real charge, refund and new wallet balance
-void onFinishSaved(float balance, float refund, String txnId) {
-  walletBalance = balance;
+// The backend saved the order: shows the real charge and the Razorpay refund
+void onFinishSaved(float refund, String txnId) {
   refundAmount = refund;
   txnLabel = "Saved: " + txnId;
   if (refund > 0) {
-    Serial.print("[WALLET] Refunded Rs ");
+    Serial.print("[RAZORPAY] Refund of Rs ");
     Serial.print(refund, 2);
-    Serial.println(" for undispensed water");
+    Serial.println(" sent for undispensed water");
   }
   if (state == COMPLETE)
     showComplete();
@@ -887,13 +877,11 @@ void onCloudMessage(char* topicName, byte* payload, unsigned int length) {
 
   if (type == "card_result") {
     pricePerLiter = msg["price"] | OFFLINE_PRICE;
-    onCardResult(msg["ok"] | false, msg["user_id"] | "", msg["name"] | "",
-                 msg["balance"] | 0.0, msg["reason"] | "Rejected");
+    onCardResult(msg["ok"] | false, msg["user_id"] | "", msg["name"] | "", msg["reason"] | "Rejected");
   }
   else if (type == "order_ready") {
     onOrderReady(msg["order_id"] | "", msg["user_id"] | "", msg["name"] | "",
-                 msg["balance"] | 0.0, msg["liters"] | 0.0, msg["amount"] | 0.0,
-                 msg["wallet_ok"] | false, msg["remote"] | false, msg["warning"] | "");
+                 msg["liters"] | 0.0, msg["amount"] | 0.0, msg["remote"] | false, msg["warning"] | "");
   }
   else if (type == "order_failed") {
     if (state == CREATING_ORDER)
@@ -901,14 +889,18 @@ void onCloudMessage(char* topicName, byte* payload, unsigned int length) {
   }
   else if (type == "payment_ok") {
     if (orderId == (msg["order_id"] | ""))
-      onPaymentOk(msg["method"] | "Online", msg["balance"] | 0.0);
+      onPaymentOk(msg["method"] | "Razorpay");
+  }
+  else if (type == "payment_pending") {
+    if (orderId == (msg["order_id"] | ""))
+      onPaymentPending();
   }
   else if (type == "payment_failed") {
     onPaymentFailed(msg["reason"] | "Payment failed");
   }
   else if (type == "finish_ok") {
     if (orderId == (msg["order_id"] | ""))
-      onFinishSaved(msg["balance"] | 0.0, msg["refund"] | 0.0, msg["txn_id"] | "");
+      onFinishSaved(msg["refund"] | 0.0, msg["txn_id"] | "");
   }
   else if (type == "stop") {
     onRemoteStop(msg["reason"] | "Stopped by admin");
@@ -1088,7 +1080,7 @@ void setup() {
   Serial.println();
   Serial.println("======================================");
   Serial.println("       AQUAALLOT SMART WATER  v3");
-  Serial.println(" RFID + WALLET + IoT + ANOMALY CHECK");
+  Serial.println(" RFID + RAZORPAY + IoT + ANOMALY CHECK");
   Serial.println("======================================");
   Serial.println("Cards: 01:02:03:04 Rohith | 11:22:33:44 Deepankishor");
   Serial.println("       55:66:77:88 Sanjay | AA:BB:CC:DD unknown");
@@ -1135,14 +1127,6 @@ void loop() {
 
     case WAIT_PAYMENT:
       handlePayment();
-      break;
-
-    case CONFIRMING_PAYMENT:
-      if (timedOut(REPLY_TIMEOUT_MS)) {
-        paymentNote = "No reply, try again";
-        setState(WAIT_PAYMENT);
-        showPayment();
-      }
       break;
 
     case DISPENSING:

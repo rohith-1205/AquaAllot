@@ -6,16 +6,14 @@ import { useApp } from '../context/AppContext';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
 import { Modal } from '../components/common/Modal';
-import { TopUpModal } from '../components/common/TopUpModal';
 
 export const Users = () => {
-  const { users, addNewUser, refresh } = useApp();
+  const { users, addNewUser } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
   const [hostelFilter, setHostelFilter] = useState('All'); // All | Hostel Block A | Hostel Block B | PG Block C
   const [statusFilter, setStatusFilter] = useState('All'); // All | Active | Warning | Suspended
 
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
-  const [selectedUserForTopUp, setSelectedUserForTopUp] = useState(null); // opens the Razorpay top-up popup
 
   // Form state
   const [newUserName, setNewUserName] = useState('');
@@ -187,7 +185,7 @@ export const Users = () => {
                 <th>Hostel Block & Room</th>
                 <th>RFID UID Tag</th>
                 <th>Water Used (Today / Monthly)</th>
-                <th>Payments Done & Balance</th>
+                <th>Payments Done</th>
                 <th>Status</th>
                 <th>Actions</th>
               </tr>
@@ -235,7 +233,7 @@ export const Users = () => {
                     <td>
                       <div>
                         <span className="font-bold text-emerald-600 block text-xs">₹{usr.totalSpent} spent</span>
-                        <span className="text-[10px] text-slate-500">Balance: ₹{usr.balance}</span>
+                        <span className="text-[10px] text-slate-500">via Razorpay</span>
                       </div>
                     </td>
                     <td>
@@ -247,15 +245,6 @@ export const Users = () => {
                     </td>
                     <td>
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => {
-                            setSelectedUserForTopUp(usr);
-                          }}
-                          className="p-1.5 text-sky-600 hover:bg-sky-50 rounded-lg transition-colors cursor-pointer"
-                          title="Top Up Prepaid Balance"
-                        >
-                          <CreditCard className="w-4 h-4" />
-                        </button>
                         <Link
                           to={`/users/${usr.id}`}
                           className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
@@ -347,8 +336,6 @@ export const Users = () => {
         </form>
       </Modal>
 
-      {/* Top-up Balance Modal */}
-      <TopUpModal user={selectedUserForTopUp} onClose={() => setSelectedUserForTopUp(null)} onDone={refresh} />
     </div>
   );
 };
