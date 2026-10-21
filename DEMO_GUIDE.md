@@ -5,7 +5,7 @@ This guide takes you from zero to a full live demo:
 
 ```
  ┌──────────────────┐   MQTT    ┌────────────────────┐   MQTT    ┌──────────────────────┐   HTTP   ┌─────────────────┐
- │  Wokwi ESP32     │ ────────► │ broker.hivemq.com  │ ◄──────── │ Backend (laptop)     │ ◄─────── │ Dashboard       │
+ │  Wokwi ESP32     │ ────────► │ test.mosquitto.org │ ◄──────── │ Backend (laptop)     │ ◄─────── │ Dashboard       │
  │  wokwi.com       │ ◄──────── │ (free public)      │ ────────► │ cd backend           │ ───────► │ localhost:5173  │
  │  RFID·OLED·valve │           └────────────────────┘           │ npm run dev  :5000   │          │ "Live Station"  │
  └──────────────────┘                                            └──────────────────────┘          └─────────────────┘
@@ -26,9 +26,9 @@ npm run dev
 The first run installs the Python packages (Flask, paho-mqtt, ...). You should see:
 ```
 ║  AquaAllot backend  →  http://localhost:5000/api/health   ║
-║  MQTT     : broker.hivemq.com:1883                        ║
+║  MQTT     : test.mosquitto.org:8081                       ║
 ║  Razorpay : test keys loaded                              ║
-✓ MQTT connected. Listening on aquaallot-demo-rohith1205/+/up
+✓ MQTT connected via test.mosquitto.org:8081 (websockets). Listening on aquaallot-demo-rohith1205/+/up
 ```
 Your Razorpay **test** keys stay in `backend/.env` (`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`).
 
@@ -153,7 +153,7 @@ dashboard shows sample data with a yellow "Backend not reachable" bar.
 | Symptom | Fix |
 |---|---|
 | OLED stays on *WiFi: connecting…* | Wokwi needs a moment; make sure the diagram is the ESP32 DevKit one from this repo. |
-| OLED *Cloud: connecting..* forever | Broker busy: change `MQTT_BROKER` to `test.mosquitto.org` in **both** `sketch.ino` and `backend/.env`. |
+| OLED *Cloud: connecting..* forever | Broker busy: try `broker.emqx.io` in `sketch.ino`, and run `npm run check` to see if your laptop can reach the same broker; `MQTT_BROKER` must be the same on both sides. |
 | Dashboard pill **MQTT broker: Connecting…** | Your network blocks port 1883 (common on college WiFi). The backend now **switches automatically** to WebSockets (port 8000, then 8884) after ~8 s – watch terminal 1 for `✓ MQTT connected via ...`. Wokwi itself can keep using 1883. |
 | Backend tries every port and none works | Run `cd backend` → `npm run check`. It tests several free brokers/ports from your laptop and prints the exact `MQTT_BROKER` / `MQTT_PORT` lines for `backend/.env` and `sketch.ino`. |
 | ESP32 online in Wokwi but **Offline** on dashboard | `TOPIC_ROOT` in `sketch.ino` ≠ `MQTT_TOPIC_ROOT` in the backend. |

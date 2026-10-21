@@ -107,7 +107,7 @@ Dashboard runs on `http://localhost:5173` → open **Live Station** in the sideb
 4. Press ▶ – the OLED shows **Cloud: ONLINE** and the dashboard shows **Wokwi ESP32: Online**
 
 ```
-Wokwi ESP32 ──MQTT──► broker.hivemq.com ◄──MQTT── backend (your laptop) ◄──HTTP── dashboard
+Wokwi ESP32 ──MQTT──► test.mosquitto.org ◄──MQTT── backend (your laptop) ◄──HTTP── dashboard
 ```
 
 ---

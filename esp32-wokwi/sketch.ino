@@ -16,7 +16,7 @@
 //
 //  How it talks to your laptop:
 //
-//    this ESP32 (wokwi.com) ---> broker.hivemq.com <--- backend (npm run dev)
+//    this ESP32 (wokwi.com) ---> test.mosquitto.org <--- backend (npm run dev)
 //
 //  Every step (card, order, payment, litres, anomaly) is sent as a small
 //  JSON message. The backend checks it and replies. If the backend can't
@@ -32,7 +32,7 @@
 
 const char* WIFI_SSID     = "Wokwi-GUEST";      // free internet inside Wokwi
 const char* WIFI_PASSWORD = "";
-const char* MQTT_BROKER   = "broker.hivemq.com";
+const char* MQTT_BROKER   = "test.mosquitto.org";
 const int   MQTT_PORT     = 1883;
 const char* TOPIC_ROOT    = "aquaallot-demo-rohith1205";   // MUST match MQTT_TOPIC_ROOT in the backend
 const char* STATION_ID    = "STN-001";

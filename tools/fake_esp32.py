@@ -30,7 +30,7 @@ FLOW_LPM = 20.0  # same as the 150 Hz clock in diagram.json (150 / 450 * 60)
 
 
 class FakeStation:
-    def __init__(self, broker, port, root, station_id):
+    def __init__(self, broker, port, root, station_id, transport="tcp"):
         self.topic_up = f"{root}/{station_id}/up"
         self.topic_down = f"{root}/{station_id}/down"
         self.topic_status = f"{root}/{station_id}/status"
@@ -44,7 +44,11 @@ class FakeStation:
         self.lock = threading.Lock()
         self.replies = []  # every message received, for --demo checks
 
-        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"fake-esp32-{uuid.uuid4().hex[:6]}")
+        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"fake-esp32-{uuid.uuid4().hex[:6]}", transport=transport)
+        if transport == "websockets":
+            self.client.ws_set_options(path="/mqtt")
+        if port in (443, 8081, 8084, 8883, 8884):   # secure ports
+            self.client.tls_set()
         self.client.will_set(self.topic_status, "offline", retain=True)
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
@@ -191,14 +195,15 @@ def run_demo(station):
 
 def main():
     parser = argparse.ArgumentParser(description="Fake AquaAllot ESP32 station")
-    parser.add_argument("--broker", default="broker.hivemq.com")
-    parser.add_argument("--port", type=int, default=1883)
+    parser.add_argument("--broker", default="test.mosquitto.org")
+    parser.add_argument("--port", type=int, default=8081, help="8081 = secure WebSockets (works where 1883 is blocked)")
+    parser.add_argument("--transport", default="websockets", choices=["tcp", "websockets"])
     parser.add_argument("--root", default="aquaallot-demo-rohith1205", help="must match MQTT_TOPIC_ROOT")
     parser.add_argument("--station", default="STN-001")
     parser.add_argument("--demo", action="store_true", help="run the demo story automatically")
     args = parser.parse_args()
 
-    station = FakeStation(args.broker, args.port, args.root, args.station)
+    station = FakeStation(args.broker, args.port, args.root, args.station, args.transport)
     time.sleep(1.5)
 
     if args.demo:
