@@ -4,10 +4,9 @@ import {
   initialUsers,
   initialStations,
   initialTransactions,
-  initialWaterUsage,
-  initialRevenueData,
   initialAlerts,
-  initialAnomalies
+  initialAnomalies,
+  initialAnalytics
 } from '../services/mockData';
 
 const AppContext = createContext();
@@ -20,12 +19,10 @@ export const AppProvider = ({ children }) => {
   const [users, setUsers] = useState(initialUsers);
   const [stations, setStations] = useState(initialStations);
   const [transactions, setTransactions] = useState(initialTransactions);
-  const [waterUsage] = useState(initialWaterUsage);
-  const [revenueData] = useState(initialRevenueData);
   const [alerts, setAlerts] = useState(initialAlerts);
   const [anomalies, setAnomalies] = useState(initialAnomalies);
-  const [demoMode, setDemoMode] = useState(false);
-  const [waterPricePerLiter, setWaterPrice] = useState(5); // ₹5/L default
+  const [analytics, setAnalytics] = useState(initialAnalytics);   // every dashboard number + chart
+  const [settings, setSettings] = useState({ waterPricePerLiter: 5, dailyQuotaLiters: 10 });
 
   // Live Wokwi station: { mqtt, stations: [...], events: [...] }
   const [live, setLive] = useState(null);
@@ -34,8 +31,7 @@ export const AppProvider = ({ children }) => {
   // ---------- 1. Live station state (every second) ----------
   const loadLive = useCallback(async () => {
     try {
-      const data = await api.getLive();
-      setLive(data);
+      setLive(await api.getLive());
       setBackendOnline(true);
     } catch (err) {
       setBackendOnline(false);
@@ -50,21 +46,24 @@ export const AppProvider = ({ children }) => {
 
   // ---------- 2. Everything else (every 3 seconds) ----------
   const loadBackendData = useCallback(async () => {
-    if (backendOnline === false) return; // keep showing sample data until the backend is back
+    if (backendOnline !== true) return; // keep showing sample data until the backend answers
     try {
-      const [uRes, sRes, tRes, aRes, settingsRes] = await Promise.all([
+      const [uRes, sRes, tRes, aRes, analyticsRes, settingsRes] = await Promise.all([
         api.getUsers(),
         api.getStations(),
-        api.getTransactions(),
-        api.getAlerts(),
+        api.getTransactions(200),
+        api.getAlerts(100),
+        api.getAnalytics(),
         api.getSettings()
       ]);
-      if (uRes?.users) setUsers(uRes.users);
-      if (sRes?.stations) setStations(sRes.stations);
-      if (tRes?.transactions) setTransactions(tRes.transactions);
-      if (aRes?.alerts) setAlerts(aRes.alerts);
-      if (aRes?.anomalies) setAnomalies(aRes.anomalies);
-      if (settingsRes?.settings?.waterPricePerLiter) setWaterPrice(settingsRes.settings.waterPricePerLiter);
+      if (uRes.offline) return; // backend went away between two polls
+      setUsers(uRes.users);
+      setStations(sRes.stations);
+      setTransactions(tRes.transactions);
+      setAlerts(aRes.alerts);
+      setAnomalies(aRes.anomalies);
+      setAnalytics(analyticsRes);
+      setSettings(settingsRes.settings);
     } catch (err) {
       console.warn('Backend sync failed, showing last known data');
     }
@@ -76,48 +75,7 @@ export const AppProvider = ({ children }) => {
     return () => clearInterval(interval);
   }, [loadBackendData]);
 
-  // Demo mode: small random flow changes on the SAMPLE stations only (never on the live Wokwi one)
-  useEffect(() => {
-    if (!demoMode) return;
-    const interval = setInterval(() => {
-      setStations((prev) =>
-        prev.map((stn) =>
-          stn.isLive || stn.status !== 'Online'
-            ? stn
-            : {
-                ...stn,
-                lastSync: Math.floor(Math.random() * 4) + 3,
-                flowRate: parseFloat((3.5 + Math.random() * 1.5).toFixed(1))
-              }
-        )
-      );
-    }, 8000);
-    return () => clearInterval(interval);
-  }, [demoMode]);
-
   // ---------- Actions ----------
-
-  // Kiosk / Dispensing pages: show the new transaction at once (the backend copy arrives on the next sync)
-  const addTransaction = (newTxn) => {
-    setTransactions((prev) => [newTxn, ...prev]);
-    setUsers((prevUsers) =>
-      prevUsers.map((usr) =>
-        usr.id === newTxn.userId
-          ? {
-              ...usr,
-              todayUsage: parseFloat((usr.todayUsage + newTxn.waterLiters).toFixed(1)),
-              monthlyUsage: parseFloat((usr.monthlyUsage + newTxn.waterLiters).toFixed(1)),
-              totalSpent: usr.totalSpent + newTxn.amount
-            }
-          : usr
-      )
-    );
-  };
-
-  const addUserBalance = async (userId, amount) => {
-    await api.topUp(userId, amount);
-    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, balance: u.balance + amount } : u)));
-  };
 
   // Register a student + RFID card in the backend (so the card works in Wokwi immediately)
   const addNewUser = async (newUser) => {
@@ -131,9 +89,9 @@ export const AppProvider = ({ children }) => {
     await api.resolveAlert(alertId);
   };
 
-  const setWaterPricePerLiter = async (price) => {
-    await api.updateSettings({ waterPricePerLiter: price });
-    setWaterPrice(price);
+  const saveSettings = async (changes) => {
+    const res = await api.updateSettings(changes);
+    setSettings(res.settings);
   };
 
   // Dashboard buttons → ESP32 (tap_card, start_order, stop, reset)
@@ -148,25 +106,17 @@ export const AppProvider = ({ children }) => {
     await loadBackendData();
   };
 
-  const toggleDemoMode = () => setDemoMode((prev) => !prev);
-
   // ---------- Live station shortcuts ----------
   const liveStation = live?.stations?.find((s) => s.stationId === LIVE_STATION_ID) || null;
-  const liveEvents = live?.events || [];
-  const mqttStatus = live?.mqtt || null;
 
-  // ---------- KPIs ----------
-  const totalWaterDispensed = parseFloat(
-    transactions.reduce((acc, t) => acc + Number(t.waterLiters || 0), 0).toFixed(1)
-  );
-  const totalRevenue = transactions
-    .filter((t) => t.paymentStatus === 'Paid' || t.status === 'Paid')
-    .reduce((acc, t) => acc + Number(t.amount || 0), 0);
-
-  const activeUsersCount = users.filter((u) => u.status === 'Active').length;
-  const activeStationsCount = stations.filter((s) => s.status === 'Online').length;
-  const criticalAlertsCount = alerts.filter((a) => a.severity === 'Critical' && a.status === 'Unresolved').length;
-  const warningAlertsCount = alerts.filter((a) => a.severity === 'Warning' && a.status === 'Unresolved').length;
+  // ---------- Counters for the sidebar / navbar ----------
+  const openAlerts = alerts.filter((a) => a.status === 'Unresolved');
+  const kpis = {
+    ...analytics.kpis,
+    criticalAlertsCount: openAlerts.filter((a) => a.severity === 'Critical').length,
+    warningAlertsCount: openAlerts.filter((a) => a.severity === 'Warning').length,
+    totalAlertsCount: openAlerts.length
+  };
 
   return (
     <AppContext.Provider
@@ -174,35 +124,23 @@ export const AppProvider = ({ children }) => {
         users,
         stations,
         transactions,
-        waterUsage,
-        revenueData,
         alerts,
         anomalies,
-        demoMode,
-        waterPricePerLiter,
-        setWaterPricePerLiter,
-        toggleDemoMode,
-        addTransaction,
-        addUserBalance,
+        analytics,
+        settings,
+        waterPricePerLiter: settings.waterPricePerLiter,
+        kpis,
         addNewUser,
         resolveAlert,
+        saveSettings,
         resetDemoData,
+        refresh: loadBackendData,
         // live Wokwi station
         backendOnline,
         liveStation,
-        liveEvents,
-        mqttStatus,
-        sendStationCommand,
-        kpis: {
-          totalWaterDispensed,
-          totalRevenue,
-          activeUsersCount,
-          activeStationsCount,
-          totalStationsCount: stations.length,
-          criticalAlertsCount,
-          warningAlertsCount,
-          totalAlertsCount: criticalAlertsCount + warningAlertsCount
-        }
+        liveEvents: live?.events || [],
+        mqttStatus: live?.mqtt || null,
+        sendStationCommand
       }}
     >
       {children}

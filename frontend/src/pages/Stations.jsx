@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Radio, Cpu, Wifi, Thermometer, Gauge, CheckCircle2, AlertTriangle, RefreshCw, Settings2 } from 'lucide-react';
+import { Radio, Cpu, Wifi, Gauge, Settings2 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
@@ -18,7 +18,7 @@ export const Stations = () => {
       navigate('/live');
       return;
     }
-    toast.success(`Sample station ${stn.name}: valve test simulated.`);
+    toast(`${stn.name} is sample data – there is no device to test.`, { icon: 'ℹ️' });
   };
 
   return (
@@ -50,7 +50,7 @@ export const Stations = () => {
                 </h3>
                 <p className="text-xs text-slate-500">{stn.location}</p>
               </div>
-              <Badge variant={stn.status === 'Online' ? 'success' : stn.status === 'Offline' ? 'danger' : 'warning'}>
+              <Badge variant={stn.status === 'Online' ? 'success' : stn.status === 'Offline' ? 'danger' : stn.status === 'Sample' ? 'neutral' : 'warning'}>
                 {stn.status}
               </Badge>
             </div>

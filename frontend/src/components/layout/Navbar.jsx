@@ -3,22 +3,24 @@ import { useLocation, Link } from 'react-router-dom';
 import { Menu, Search, Bell, Sparkles, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useApp } from '../../context/AppContext';
+import { timeAgo } from '../../utils/format';
 
 const pageTitles = {
   '/dashboard': { title: 'Dashboard Overview', subtitle: "Here's what's happening across your AquaAllot system today." },
   '/users': { title: 'User Management', subtitle: 'Monitor user balances, RFID tags, and daily consumption.' },
-  '/dispensing': { title: 'Water Dispensing & Purchase', subtitle: 'Demonstrate live Razorpay test payment & ESP32 flow simulation.' },
+  '/dispensing': { title: 'New Water Order', subtitle: 'Send an order to the Wokwi station and pay from the wallet.' },
   '/payments': { title: 'Payment History & Audit', subtitle: 'Track Razorpay digital transactions and revenue logs.' },
   '/analytics': { title: 'Consumption Analytics', subtitle: 'Explore water usage trends, peak demand, and station metrics.' },
   '/alerts': { title: 'Anomalies & System Alerts', subtitle: 'Statistical 3-Sigma anomaly detection & real-time warnings.' },
+  '/live': { title: 'Live Station', subtitle: 'The Wokwi ESP32 in real time over MQTT.' },
   '/stations': { title: 'Stations & IoT Telemetry', subtitle: 'ESP32 controller state, YF-S201 flow sensors, and solenoid valves.' },
-  '/settings': { title: 'System Settings', subtitle: 'Configure pricing rate, Razorpay sandbox keys, and notifications.' }
+  '/settings': { title: 'System Settings', subtitle: 'Water price, daily quota, station link and demo data.' }
 };
 
 export const Navbar = ({ setIsMobileOpen }) => {
   const location = useLocation();
   const { user } = useAuth();
-  const { alerts, demoMode, toggleDemoMode } = useApp();
+  const { alerts, backendOnline } = useApp();
   const [showNotifications, setShowNotifications] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -61,19 +63,15 @@ export const Navbar = ({ setIsMobileOpen }) => {
           />
         </div>
 
-        {/* Demo Mode Badge */}
-        <button
-          onClick={toggleDemoMode}
-          title="Toggle Demo / Sandbox Mode"
-          className={`hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
-            demoMode
-              ? 'bg-gradient-to-r from-sky-500 to-cyan-500 text-white shadow-sm shadow-sky-500/20'
-              : 'bg-slate-200 text-slate-600'
+        {/* Backend status */}
+        <span
+          className={`hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold ${
+            backendOnline ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-sm shadow-emerald-500/20' : 'bg-rose-100 text-rose-700'
           }`}
         >
           <Sparkles className="w-3.5 h-3.5" />
-          <span>{demoMode ? 'DEMO MODE (REVIEW II)' : 'LIVE BACKEND MODE'}</span>
-        </button>
+          <span>{backendOnline ? 'LIVE BACKEND' : 'BACKEND OFFLINE · SAMPLE DATA'}</span>
+        </span>
 
         {/* Notification Bell */}
         <div className="relative">
@@ -126,7 +124,7 @@ export const Navbar = ({ setIsMobileOpen }) => {
                             {alert.description}
                           </p>
                           <span className="text-[10px] text-slate-400 mt-1 block">
-                            {alert.timestamp}
+                            {timeAgo(alert.timestamp)}
                           </span>
                         </div>
                       </div>

@@ -20,7 +20,7 @@ export const ControlPanel = ({ station }) => {
   const online = Boolean(station?.online);
   const state = station?.state;
   const canTap = online && state === 'IDLE';
-  const canOrder = online && (state === 'IDLE' || state === 'CARD_OK');
+  const canOrder = online && state === 'IDLE'; // never replace a student who is already at the tap
 
   const ownerOf = (uid) => users.find((u) => normalizeCard(u.rfid) === normalizeCard(uid));
 

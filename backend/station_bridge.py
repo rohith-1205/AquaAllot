@@ -22,11 +22,12 @@ Every message is JSON with a "type" field:
     card       RFID card tapped           order_failed    reason
     order      1/2/5 L button pressed     payment_ok      open the valve!
     pay_wallet PAY button pressed         payment_failed  reason (e.g. low balance)
-    progress   litres so far (every 1 s)  finish_ok       saved + anomaly result
+    progress   litres so far (every 1 s)  finish_ok       saved + charged / refund
     complete   valve closed, final litres stop            emergency stop from dashboard
     anomaly    leak / manual anomaly      reset           go back to the home screen
     ack        alarm acknowledged         tap_card        "virtual" card tap from dashboard
     cancel     order abandoned
+    offline_sale  cash sale made while offline (sent after reconnecting)
 """
 
 import json
@@ -65,6 +66,7 @@ class StationBridge:
         self.attempt_started = 0.0
         self.last_error = None
         self.events = deque(maxlen=MAX_EVENTS)
+        self.last_activity = {}   # order id → time of the last water-flow message (stuck-order check)
         self.live = {station_id: _blank_live(station_id) for station_id in stations}
 
         self.handlers = {
@@ -78,7 +80,30 @@ class StationBridge:
             "complete": self._on_complete,
             "anomaly": self._on_anomaly,
             "ack": self._on_ack,
+            "offline_sale": self._on_offline_sale,
         }
+
+    # =================================================================
+    #   Background checks (run even without MQTT)
+    # =================================================================
+
+    def start_housekeeping(self, every_seconds=5):
+        """Daily usage reset, expiring unpaid orders and refunding stuck ones."""
+        def loop():
+            while True:
+                time.sleep(every_seconds)
+                try:
+                    with self.lock:
+                        for order in services.housekeeping(self.store, self.last_activity):
+                            self._log(order["stationId"], "system", "refund",
+                                      f"💸 Order {order['id']} never dispensed → ₹{order['amount']:g} refunded to {order['userName']}")
+                            live = self._live(order["stationId"])
+                            if live.get("order") and live["order"]["id"] == order["id"]:
+                                live.update(order=_order_view(order), alert="Order refunded (no water flow)")
+                                self.send(order["stationId"], "reset")
+                except Exception:
+                    log.exception("Housekeeping failed")
+        threading.Thread(target=loop, daemon=True).start()
 
     # =================================================================
     #   MQTT connection
@@ -228,7 +253,17 @@ class StationBridge:
         self._log(station_id, "up", "hello", f"ESP32 connected (firmware {data.get('fw', '?')}, IP {data.get('ip', '?')})")
 
     def _on_heartbeat(self, station_id, data):
-        pass  # _touch() already stored state, valve, rssi
+        """_touch() already stored state/valve/rssi. After a backend restart, rebuild the current order."""
+        live = self._live(station_id)
+        if live.get("order") or data.get("state") not in ("AWAITING_PAYMENT", "DISPENSING"):
+            return
+        open_orders = [o for o in self.store.find("orders", stationId=station_id) if o["status"] in ("pending", "paid")]
+        if open_orders:
+            order = open_orders[0]
+            live["order"] = _order_view(order)
+            live["target"] = order["liters"]
+            live["user"] = services.public_user(self.store.find_one("users", id=order["userId"]))
+            self._log(station_id, "system", "restore", f"Restored order {order['id']} after a restart")
 
     def _on_card(self, station_id, data):
         live = self._live(station_id)
@@ -266,12 +301,12 @@ class StationBridge:
         order_id = data.get("order_id")
         self._log(station_id, "up", "pay_wallet", f"PAY button: wallet payment for {order_id}")
         try:
-            order, user = services.pay_order(self.store, order_id, method="Wallet")
+            order, user = services.pay_order(self.store, order_id, via="Station PAY button")
         except ServiceError as error:
             self.send(station_id, "payment_failed", order_id=order_id, reason=str(error))
             self._log(station_id, "down", "payment_failed", f"Wallet payment failed: {error}")
             return
-        self.payment_confirmed(order, user)
+        self.payment_confirmed(order, user, via="Station PAY button")
 
     def _on_cancel(self, station_id, data):
         services.cancel_order(self.store, data.get("order_id"))
@@ -280,6 +315,8 @@ class StationBridge:
         self._log(station_id, "up", "cancel", "Order cancelled at the station")
 
     def _on_progress(self, station_id, data):
+        if data.get("order_id"):
+            self.last_activity[data["order_id"]] = time.time()
         live = self._live(station_id)
         live["dispensed"] = round(float(data.get("liters", 0)), 2)
         live["flowLpm"] = round(float(data.get("flow", 0)), 1)
@@ -306,15 +343,13 @@ class StationBridge:
 
         live["order"] = _order_view(outcome["order"])
         live["user"] = services.public_user(outcome["user"])
-        anomaly = outcome["anomaly"]
+        self.last_activity.pop(order_id, None)
         self.send(station_id, "finish_ok", order_id=order_id, txn_id=outcome["order"].get("txnId"),
-                  liters=round(liters, 2), balance=round(float(outcome["user"]["balance"]), 2),
-                  anomaly=bool(anomaly), reason="Usage spike!" if anomaly else "")
-        if anomaly:
-            live["alert"] = f"AI anomaly: {anomaly['reason']}"
-            self._log(station_id, "down", "finish_ok", f"Saved. 🚨 {anomaly['reason']}")
-        else:
-            self._log(station_id, "down", "finish_ok", f"Saved as {outcome['order'].get('txnId')}")
+                  liters=round(liters, 2), charged=outcome["charged"], refund=outcome["refund"],
+                  balance=services.money(outcome["user"]["balance"]))
+        refund_text = f", ₹{outcome['refund']:g} refunded" if outcome["refund"] else ""
+        self._log(station_id, "down", "finish_ok",
+                  f"Saved {outcome['order'].get('txnId')}: charged ₹{outcome['charged']:g}{refund_text}")
 
     def _on_anomaly(self, station_id, data):
         reason = data.get("reason", "Anomaly")
@@ -328,20 +363,31 @@ class StationBridge:
         self._live(station_id).update(alert=None, user=None, order=None, dispensed=0.0, target=0.0)
         self._log(station_id, "up", "ack", "Alarm acknowledged at the station")
 
+    def _on_offline_sale(self, station_id, data):
+        txn = services.record_offline_sale(
+            self.store, data.get("sale_id"), data.get("uid"), data.get("liters", 0), data.get("amount", 0),
+            station_id, data.get("seconds_ago", 0),
+        )
+        if txn:
+            self._log(station_id, "up", "offline_sale",
+                      f"Offline cash sale synced: {txn['userName']}, {txn['waterLiters']:g} L, ₹{txn['amount']:g}")
+
     # =================================================================
     #   Actions from the dashboard
     # =================================================================
 
-    def payment_confirmed(self, order, user):
-        """Tell the ESP32 to open the valve (called for Wallet and Razorpay payments)."""
+    def payment_confirmed(self, order, user, via="Station PAY button"):
+        """Wallet was charged → tell the ESP32 to open the valve."""
         station_id = order["stationId"]
         with self.lock:
             live = self._live(station_id)
             live["order"] = _order_view(order)
             live["user"] = services.public_user(user)
-        self.send(station_id, "payment_ok", order_id=order["id"], method=order["paymentMethod"],
-                  balance=round(float(user["balance"]), 2))
-        self._log(station_id, "down", "payment_ok", f"Paid by {order['paymentMethod']} → open valve")
+            self.last_activity[order["id"]] = time.time()
+        self.send(station_id, "payment_ok", order_id=order["id"], method="Wallet",
+                  balance=services.money(user["balance"]))
+        self._log(station_id, "down", "payment_ok",
+                  f"₹{order['amount']:g} taken from wallet ({via}) → open valve. Wallet now ₹{user['balance']:g}")
 
     def command(self, station_id, action, **params):
         """Dashboard buttons: tap_card, start_order, stop, reset."""
@@ -360,8 +406,8 @@ class StationBridge:
                 self._log(station_id, "down", "tap_card", f"Virtual card tap from dashboard: {uid}")
 
             elif action == "start_order":
-                if live["state"] not in ("IDLE", "CARD_OK"):
-                    raise ServiceError("Station is busy. Finish or reset it first.")
+                if live["state"] != "IDLE":   # never replace a student who is already at the tap
+                    raise ServiceError("Station is busy. Wait until it shows “Waiting for a card”.")
                 user = self.store.find_one("users", id=params.get("user_id"))
                 if not user:
                     raise ServiceError("User not found")
@@ -441,10 +487,11 @@ class StationBridge:
         balance = round(float(user["balance"]), 2)
         self.send(station_id, "order_ready", order_id=order["id"], user_id=user["id"], name=user["name"],
                   balance=balance, liters=order["liters"], amount=order["amount"],
-                  wallet_ok=balance >= order["amount"], remote=remote)
+                  wallet_ok=balance >= order["amount"], remote=remote, warning=order.get("warning", ""))
         where = "dashboard" if remote else "station"
         self._log(station_id, "down", "order_ready",
-                  f"Order {order['id']} ({where}): {order['liters']:g} L = ₹{order['amount']:.0f}, waiting for payment")
+                  f"Order {order['id']} ({where}): {order['liters']:g} L = ₹{order['amount']:.0f}, waiting for payment"
+                  + (f" · ⚠ {order['warning']}" if order.get("warning") else ""))
 
     def _live(self, station_id):
         if station_id not in self.live:
@@ -495,5 +542,6 @@ def _blank_live(station_id):
 def _order_view(order):
     if not order:
         return None
-    keys = ("id", "liters", "amount", "status", "paymentMethod", "txnId", "source", "dispensedLiters", "userId", "userName")
+    keys = ("id", "liters", "amount", "status", "txnId", "source", "dispensedLiters", "charged", "refund",
+            "warning", "userId", "userName")
     return {key: order.get(key) for key in keys}

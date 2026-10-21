@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import toast from 'react-hot-toast';
-import { AlertTriangle, ShieldAlert, CheckCircle2, Info, Filter, ArrowUpRight, Activity } from 'lucide-react';
+import { AlertTriangle, ShieldAlert } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
+import { formatDateTime, timeAgo } from '../utils/format';
 
 export const Alerts = () => {
   const { alerts, anomalies, resolveAlert } = useApp();
@@ -32,7 +33,7 @@ export const Alerts = () => {
           </div>
           <h2 className="text-2xl sm:text-3xl font-extrabold font-['Outfit']">Anomaly & Leakage Detection</h2>
           <p className="text-xs sm:text-sm text-slate-300 mt-1">
-            Automated threshold evaluation ($\mu + 3\sigma$) detecting abnormal flow surges or shared RFID usage.
+            Over-usage (μ + 3σ of each student's own history), daily quota, refunds, leaks and stopped orders.
           </p>
         </div>
       </div>
@@ -41,10 +42,11 @@ export const Alerts = () => {
       <div className="p-6 bg-white rounded-3xl border border-slate-100 shadow-sm space-y-4">
         <h3 className="text-base font-bold text-slate-900 font-['Outfit']">3-Sigma Anomaly Detection Framework</h3>
         <p className="text-xs text-slate-600 leading-relaxed">
-          AquaAllot computes the historical mean ($\mu$) and standard deviation ($\sigma$) of daily water consumption per user. Any transaction pushing daily volume past the upper control limit ($\mu + 3\sigma$) flags an anomaly alert for administrator review.
+          For every student AquaAllot learns the average (μ) and standard deviation (σ) of their daily water use from the last 30 days. When a new order would push today's total above μ + 3σ, the order is still allowed but one alert per student per day is raised here for the admin.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+          {anomalies.length === 0 && <p className="text-xs text-slate-400">No usage anomalies yet. Try Sanjay's yellow card with 5 L in Wokwi.</p>}
           {anomalies.map((anom) => (
             <div
               key={anom.id}
@@ -53,7 +55,7 @@ export const Alerts = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="text-sm font-bold text-slate-900">{anom.userName}</h4>
-                  <span className="text-[11px] text-slate-500">Target ID: {anom.userId}</span>
+                  <span className="text-[11px] text-slate-500">{anom.userId} · {formatDateTime(anom.timestamp)}</span>
                 </div>
                 <Badge variant={anom.severity === 'Critical' ? 'danger' : 'info'}>
                   {anom.deviation} Anomaly
@@ -62,11 +64,11 @@ export const Alerts = () => {
 
               <div className="grid grid-cols-4 gap-2 p-3 bg-white rounded-xl border border-rose-100 text-xs text-center font-mono">
                 <div>
-                  <span className="text-slate-400 text-[10px] block">Mean ($\mu$)</span>
+                  <span className="text-slate-400 text-[10px] block">Mean (μ)</span>
                   <span className="font-bold text-slate-800">{anom.mean} L</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 text-[10px] block">Std Dev ($\sigma$)</span>
+                  <span className="text-slate-400 text-[10px] block">Std Dev (σ)</span>
                   <span className="font-bold text-slate-800">{anom.stdDev} L</span>
                 </div>
                 <div>
@@ -105,6 +107,7 @@ export const Alerts = () => {
 
       {/* Alerts Feed */}
       <div className="space-y-3">
+        {filteredAlerts.length === 0 && <p className="text-xs text-slate-400">No alerts in this category.</p>}
         {filteredAlerts.map((alt) => (
           <div
             key={alt.id}
@@ -129,7 +132,7 @@ export const Alerts = () => {
                   </Badge>
                 </div>
                 <p className="text-xs text-slate-600 mt-1">{alt.description}</p>
-                <span className="text-[10px] text-slate-400 mt-1.5 block">{alt.timestamp}</span>
+                <span className="text-[10px] text-slate-400 mt-1.5 block" title={formatDateTime(alt.timestamp)}>{timeAgo(alt.timestamp)} · {formatDateTime(alt.timestamp)}</span>
               </div>
             </div>
 

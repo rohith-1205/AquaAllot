@@ -73,6 +73,7 @@ def seed_demo_data(force=False):
     store.replace_all("anomalies", demo_data.make_anomalies())
     store.replace_all("settings", demo_data.make_settings())
     store.replace_all("orders", [])
+    store.replace_all("topups", [])
     store.replace_all("meta", [{"id": "seed", "version": demo_data.SEED_VERSION}])
     log.info("🌱 Demo data loaded (seed version %s) into %s", demo_data.SEED_VERSION, store.name)
 
@@ -96,6 +97,27 @@ def handle_service_error(error):
 
 def body():
     return request.get_json(silent=True) or {}
+
+
+def limit_arg(default=200):
+    """?limit=50 on list endpoints (newest first). Keeps responses small as data grows."""
+    try:
+        return max(1, min(int(request.args.get("limit", default)), 1000))
+    except ValueError:
+        return default
+
+
+def verified_payment(data):
+    """
+    Checks a Razorpay payment from the browser.
+    Returns (payment_id, method) or raises ServiceError.
+    Without Razorpay keys in backend/.env, a simulated payment is accepted (demo mode).
+    """
+    if not payments.has_real_keys():
+        return f"sim_{services.new_id('PAY')}", "Simulated (no Razorpay keys)"
+    if not payments.signature_is_valid(data.get("razorpay_order_id"), data.get("razorpay_payment_id"), data.get("razorpay_signature")):
+        raise ServiceError("Razorpay signature check failed")
+    return data["razorpay_payment_id"], "Razorpay"
 
 
 # =====================================================================
@@ -138,108 +160,66 @@ def get_order(order_id):
     return ok({"order": services.get_order(store, order_id)})
 
 
-@app.route("/api/orders/<order_id>/checkout", methods=["POST"])
-def checkout_order(order_id):
-    """Create the Razorpay order for a station order (opens the Razorpay popup on the dashboard)."""
-    order = services.get_order(store, order_id)
-    if order["status"] != "pending":
-        raise ServiceError(f"Order is already {order['status']}")
-    try:
-        rzp = payments.create_razorpay_order(order["amount"], notes={"aquaallot_order": order_id, "user_id": order["userId"]})
-    except Exception as error:
-        return fail(f"Razorpay: {error}", 502)
-    store.update("orders", {"id": order_id}, set={"razorpayOrderId": rzp["id"]})
-    user = store.find_one("users", id=order["userId"]) or {}
-    return ok({"razorpay": rzp, "order": order, "user": {"name": user.get("name"), "email": user.get("email")}})
-
-
-@app.route("/api/orders/<order_id>/confirm", methods=["POST"])
-def confirm_order_payment(order_id):
-    """
-    Called after the Razorpay popup succeeds (or for a demo 'test payment').
-    Verifies the signature, marks the order paid and tells the ESP32 to open the valve.
-    """
-    data = body()
-    if data.get("test_mode"):
-        method, payment_id, rzp_order_id = "Test payment", None, None
-    else:
-        rzp_order_id = data.get("razorpay_order_id")
-        payment_id = data.get("razorpay_payment_id")
-        if not payments.signature_is_valid(rzp_order_id, payment_id, data.get("razorpay_signature")):
-            return fail("Razorpay signature check failed", 400)
-        method = "Razorpay"
-
-    order, user = services.pay_order(store, order_id, method, payment_id=payment_id, razorpay_order_id=rzp_order_id)
-    bridge.payment_confirmed(order, user)
-    return ok({"order": order}, "Payment verified. Valve opening at the station.")
+@app.route("/api/orders/<order_id>/pay", methods=["POST"])
+def pay_order_from_wallet(order_id):
+    """Dashboard 'Pay from wallet' (same rule as the PAY button on the station)."""
+    order, user = services.pay_order(store, order_id, via="Dashboard")
+    bridge.payment_confirmed(order, user, via="Dashboard")
+    return ok({"order": order, "user": services.public_user(user)}, "Paid from wallet. Valve opening at the station.")
 
 
 # =====================================================================
-#   RFID + KIOSK PAYMENT FLOW  (used by the Kiosk and Dispensing pages)
+#   WALLET TOP-UP  (the only way money enters a wallet: Razorpay)
+# =====================================================================
+
+@app.route("/api/users/<user_id>/topup/checkout", methods=["POST"])
+def topup_checkout(user_id):
+    """Step 1: create a Razorpay order for the top-up amount (opens the Razorpay popup)."""
+    amount = services.money(body().get("amount", 0))
+    if amount < services.MIN_TOPUP or amount > services.MAX_TOPUP:
+        raise ServiceError(f"Top-up must be ₹{services.MIN_TOPUP}–₹{services.MAX_TOPUP}")
+    user = store.find_one("users", id=user_id)
+    if not user:
+        return fail("User not found", 404)
+    try:
+        rzp = payments.create_razorpay_order(amount, notes={"purpose": "wallet top-up", "user_id": user_id})
+    except Exception as error:
+        return fail(f"Razorpay: {error}", 502)
+    topup = services.create_topup(store, user_id, amount, rzp["id"])
+    return ok({"topup": topup, "razorpay": rzp, "user": services.public_user(user)})
+
+
+@app.route("/api/topups/<topup_id>/confirm", methods=["POST"])
+def topup_confirm(topup_id):
+    """Step 2: after the popup succeeds → verify the Razorpay signature → add money to the wallet."""
+    data = body()
+    topup = store.find_one("topups", id=topup_id)
+    if not topup:
+        return fail("Top-up not found", 404)
+    if payments.has_real_keys() and data.get("razorpay_order_id") != topup["razorpayOrderId"]:
+        raise ServiceError("Payment does not belong to this top-up")
+    payment_id, method = verified_payment(data)
+    topup, user = services.complete_topup(store, topup_id, payment_id, method)
+    return ok({"topup": topup, "user": services.public_user(user)}, f"₹{topup['amount']:g} added to {user['name']}'s wallet")
+
+
+@app.route("/api/topups", methods=["GET"])
+def list_topups():
+    return ok({"topups": store.all("topups", limit=limit_arg())})
+
+
+# =====================================================================
+#   RFID CHECK (Kiosk page "RFID card" box)
 # =====================================================================
 
 @app.route("/api/verify_rfid", methods=["POST"])
 def verify_rfid():
     uid = body().get("rfid_uid", "")
-    log.info("🔐 RFID check from dashboard: %s", uid)
     try:
         user = services.check_card(store, uid)
     except ServiceError as error:
         return fail(str(error), 404)
     return ok({"authorized": True, "user": user}, "RFID authentication successful")
-
-
-@app.route("/api/create_order", methods=["POST"])
-def create_order():
-    data = body()
-    try:
-        rzp = payments.create_razorpay_order(
-            data.get("amount_rupees", 25),
-            notes={"user_id": str(data.get("user_id", "")), "water_liters": str(data.get("water_liters", ""))},
-        )
-    except Exception as error:
-        return fail(f"Razorpay: {error}", 502)
-    return ok(rzp, "Order created")
-
-
-@app.route("/api/verify_payment", methods=["POST"])
-def verify_payment():
-    """Kiosk/Dispensing pages: saves the transaction. (Usage is added later by /api/log_usage.)"""
-    data = body()
-    user = store.find_one("users", id=data.get("user_id")) or {}
-    signature_ok = payments.signature_is_valid(
-        data.get("razorpay_order_id"), data.get("razorpay_payment_id"), data.get("razorpay_signature")
-    )
-    amount = float(data.get("amount_rupees", 0))
-    transaction = {
-        "id": services.new_id("TXN"),
-        "userId": user.get("id", data.get("user_id")), "userName": user.get("name", "User"),
-        "hostelBlock": user.get("hostelBlock"), "rfid": user.get("rfid"),
-        "amount": amount, "waterLiters": float(data.get("quantity_liters", 0)),
-        "paymentStatus": "Paid", "dispensingStatus": "Completed",
-        "paymentMethod": "Razorpay" if signature_ok else "Razorpay (test)",
-        "razorpayPaymentId": data.get("razorpay_payment_id"), "razorpayOrderId": data.get("razorpay_order_id"),
-        "stationId": data.get("station_id", demo_data.WIRED_STATION_ID), "timestamp": services.now_text(),
-    }
-    store.insert("transactions", transaction)
-    if user:
-        store.update("users", {"id": user["id"]}, inc={"totalSpent": amount})
-    return ok({
-        "verified": True, "signature_verified": signature_ok, "status": "Authorized",
-        "payment_id": data.get("razorpay_payment_id"), "order_id": data.get("razorpay_order_id"),
-        "dispensing_authorized": True, "transaction": transaction,
-    }, "Payment saved. Water dispensing authorized.")
-
-
-@app.route("/api/log_usage", methods=["POST"])
-def log_usage():
-    data = body()
-    liters = float(data.get("water_liters", 0))
-    station_id = data.get("station_id", demo_data.WIRED_STATION_ID)
-    user = store.update("users", {"id": data.get("user_id")}, inc={"todayUsage": liters, "monthlyUsage": liters})
-    store.update("stations", {"id": station_id}, inc={"todayUsage": liters})
-    anomaly = services.detect_usage_anomaly(store, user, station_id)
-    return ok({"logged": True, "anomaly": anomaly}, "Usage logged")
 
 
 # =====================================================================
@@ -265,9 +245,10 @@ def create_user():
         "id": services.new_id("USR"), "name": data["name"], "email": data.get("email", ""),
         "hostelBlock": data.get("hostelBlock", "Hostel Block A"), "roomNo": data.get("roomNo", ""),
         "rfid": card, "rfidCard": data.get("rfidCard", "Registered from dashboard"),
-        "balance": float(data.get("balance", 100)), "todayUsage": 0.0, "monthlyUsage": 0.0, "totalSpent": 0.0,
-        "avgDailyUsage": float(data.get("avgDailyUsage", 2.5)), "usageStdDev": 0.6, "status": "Active",
-        "avatar": demo_data.avatar(data["name"]),
+        "balance": 0.0, "todayUsage": 0.0, "monthlyUsage": 0.0, "totalSpent": 0.0,   # top up via Razorpay
+        "avgDailyUsage": float(data.get("avgDailyUsage", 2.5)), "usageStdDev": 0.6,
+        "dailyQuota": float(data.get("dailyQuota") or services.settings(store).get("dailyQuotaLiters", 10)),
+        "status": "Active", "avatar": demo_data.avatar(data["name"]), "createdAt": services.now_iso(),
     }
     store.insert("users", user)
     log.info("👤 New user %s with card %s", user["name"], card)
@@ -277,33 +258,42 @@ def create_user():
 @app.route("/api/users/<user_id>", methods=["GET"])
 def get_user(user_id):
     user = store.find_one("users", id=user_id)
-    return ok({"user": user}) if user else fail("User not found", 404)
+    if not user:
+        return fail("User not found", 404)
+    return ok({"user": user, "profile": services.usage_profile(store, user)})
+
+
+@app.route("/api/users/<user_id>/usage", methods=["GET"])
+def get_user_usage(user_id):
+    """Litres per day for the last 7 days (User Details chart)."""
+    return ok({"usage": services.user_usage_history(store, user_id, days=7)})
 
 
 @app.route("/api/users/<user_id>", methods=["PUT"])
 def update_user(user_id):
-    allowed = ("name", "email", "hostelBlock", "roomNo", "status", "avgDailyUsage")
+    allowed = ("name", "email", "hostelBlock", "roomNo", "status", "avgDailyUsage", "dailyQuota")
     changes = {key: value for key, value in body().items() if key in allowed}
     user = store.update("users", {"id": user_id}, set=changes)
     return ok({"user": user}) if user else fail("User not found", 404)
 
 
-@app.route("/api/users/<user_id>/topup", methods=["POST"])
-def topup_user_balance(user_id):
-    amount = float(body().get("amount", 100))
-    if amount <= 0:
-        return fail("Amount must be positive")
-    user = store.update("users", {"id": user_id}, inc={"balance": amount})
-    return ok({"user": user}, f"Added ₹{amount:.0f} to wallet") if user else fail("User not found", 404)
-
-
 # =====================================================================
-#   TRANSACTIONS, STATIONS, ALERTS, SETTINGS
+#   TRANSACTIONS, ANALYTICS, STATIONS, ALERTS, SETTINGS
 # =====================================================================
 
 @app.route("/api/transactions", methods=["GET"])
 def get_transactions():
-    return ok({"transactions": store.all("transactions")})
+    return ok({"transactions": store.all("transactions", limit=limit_arg())})
+
+
+@app.route("/api/analytics", methods=["GET"])
+def get_analytics():
+    """Every number and chart on the Dashboard / Analytics pages, calculated from real transactions."""
+    data = services.analytics(store)
+    live_stations = [s for s in store.all("stations") if s.get("isLive")]
+    online = sum(1 for s in live_stations if bridge.station_overrides(s["id"]).get("status") in ("Online", "Warning"))
+    data["kpis"].update({"liveStationsOnline": online, "liveStationsTotal": len(live_stations)})
+    return ok(data)
 
 
 @app.route("/api/stations", methods=["GET"])
@@ -320,53 +310,40 @@ def get_station(station_id):
     return ok({"station": {**station, **bridge.station_overrides(station_id)}})
 
 
-@app.route("/api/stations/<station_id>/telemetry", methods=["POST"])
-def station_telemetry(station_id):
-    """Optional HTTP telemetry (the Wokwi station uses MQTT instead)."""
-    data = body()
-    changes = {}
-    if "flow_rate_lpm" in data:
-        changes["flowRate"] = data["flow_rate_lpm"]
-    if "solenoid_valve" in data:
-        changes["solenoidValve"] = "Open" if str(data["solenoid_valve"]).upper() == "OPEN" else "Closed"
-    store.update("stations", {"id": station_id}, set=changes)
-    return ok({"telemetry_logged": True})
-
-
 @app.route("/api/alerts", methods=["GET"])
 def get_alerts():
-    return ok({"alerts": store.all("alerts"), "anomalies": store.all("anomalies")})
-
-
-@app.route("/api/alerts", methods=["POST"])
-def create_alert():
-    data = body()
-    alert = services.raise_alert(
-        store, data.get("severity", "Critical"), data.get("title", "System Warning"),
-        data.get("reason") or data.get("description", "Alert triggered"),
-        data.get("station_id", demo_data.WIRED_STATION_ID), data.get("user_id"),
-    )
-    return ok({"alert": alert}, "Alert saved")
+    limit = limit_arg(100)
+    return ok({"alerts": store.all("alerts", limit=limit), "anomalies": store.all("anomalies", limit=limit)})
 
 
 @app.route("/api/alerts/<alert_id>/resolve", methods=["POST"])
 def resolve_alert(alert_id):
-    alert = store.update("alerts", {"id": alert_id}, set={"status": "Resolved"})
+    alert = store.update("alerts", {"id": alert_id}, set={"status": "Resolved", "resolvedAt": services.now_iso()})
     return ok({"alert": alert}, "Alert resolved") if alert else fail("Alert not found", 404)
 
 
 @app.route("/api/settings", methods=["GET"])
 def get_settings():
-    return ok({"settings": store.find_one("settings", id="global") or {}})
+    return ok({"settings": services.settings(store)})
 
 
 @app.route("/api/settings", methods=["PUT"])
 def update_settings():
-    price = float(body().get("waterPricePerLiter", 0))
-    if price <= 0:
-        return fail("Price must be positive")
-    settings = store.update("settings", {"id": "global"}, set={"waterPricePerLiter": price})
-    return ok({"settings": settings}, f"Water price set to ₹{price:g}/L")
+    data = body()
+    changes = {}
+    if "waterPricePerLiter" in data:
+        price = float(data["waterPricePerLiter"] or 0)
+        if price <= 0:
+            return fail("Price must be positive")
+        changes["waterPricePerLiter"] = price
+    if "dailyQuotaLiters" in data:
+        quota = float(data["dailyQuotaLiters"] or 0)
+        if quota <= 0:
+            return fail("Daily quota must be positive")
+        changes["dailyQuotaLiters"] = quota
+        store.update_many("users", set={"dailyQuota": quota})   # same allotment for everyone
+    settings = store.update("settings", {"id": "global"}, set=changes)
+    return ok({"settings": settings}, "Settings saved")
 
 
 @app.route("/api/admin/reset_demo", methods=["POST"])
@@ -380,13 +357,15 @@ def reset_demo():
 # =====================================================================
 
 seed_demo_data()
+services.roll_over_day(store)
 bridge.start()
+bridge.start_housekeeping()
 
 if __name__ == "__main__":
     log.info("╔══════════════════════════════════════════════════════════╗")
     log.info("║  %-56s║", f"AquaAllot backend  →  http://localhost:{PORT}/api/health")
     log.info("║  Database : %-45s║", store.name)
-    log.info("║  MQTT     : %-45s║", f"{MQTT_BROKER}:{MQTT_PORT}")
+    log.info("║  MQTT     : %-45s║", f"{MQTT_BROKER}:{MQTT_PORT} ({MQTT_TRANSPORT})")
     log.info("║  Topic    : %-45s║", f"{MQTT_TOPIC_ROOT}/<station>/up|down")
     log.info("║  Razorpay : %-45s║", "test keys loaded" if payments.has_real_keys() else "no keys → simulated")
     log.info("╚══════════════════════════════════════════════════════════╝")

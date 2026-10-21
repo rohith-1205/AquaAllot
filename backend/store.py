@@ -8,6 +8,7 @@ Every route and service talks to `store`, never to MongoDB directly, so
 the rest of the code does not care which one is active.
 
     store.all("users")                         -> list (newest first)
+    store.all("transactions", limit=100)       -> only the newest 100
     store.find_one("users", id="USR001")       -> dict or None
     store.insert("alerts", {...})
     store.update("users", {"id": "USR001"}, set={"status": "Active"}, inc={"balance": -10})
@@ -19,7 +20,7 @@ import threading
 
 log = logging.getLogger("aquaallot.store")
 
-COLLECTIONS = ["users", "stations", "transactions", "alerts", "anomalies", "orders", "settings", "meta"]
+COLLECTIONS = ["users", "stations", "transactions", "topups", "alerts", "anomalies", "orders", "settings", "meta"]
 
 
 class Store:
@@ -50,12 +51,16 @@ class Store:
 
     # ---------- read ----------
 
-    def all(self, collection):
-        """All documents, newest first."""
+    def all(self, collection, limit=None):
+        """All documents, newest first (or only the newest `limit`)."""
         with self.lock:
             if self.using_mongo:
-                return [_clean(d) for d in self.mongo[collection].find({}).sort("_id", -1)]
-            return copy.deepcopy(self.memory[collection])
+                cursor = self.mongo[collection].find({}).sort("_id", -1)
+                if limit:
+                    cursor = cursor.limit(int(limit))
+                return [_clean(d) for d in cursor]
+            docs = self.memory[collection][:limit] if limit else self.memory[collection]
+            return copy.deepcopy(docs)
 
     def find(self, collection, **match):
         return [doc for doc in self.all(collection) if _matches(doc, match)]
@@ -106,6 +111,15 @@ class Store:
                         doc[key] = round((doc.get(key) or 0) + amount, 2)
                     return copy.deepcopy(doc)
             return None
+
+    def update_many(self, collection, set):
+        """Set the same fields on every document (e.g. reset todayUsage at midnight)."""
+        with self.lock:
+            if self.using_mongo:
+                self.mongo[collection].update_many({}, {"$set": set})
+            else:
+                for doc in self.memory[collection]:
+                    doc.update(set)
 
     def replace_all(self, collection, docs):
         """Delete everything in a collection and insert `docs` (kept in the given order: newest first)."""

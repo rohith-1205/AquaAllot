@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import toast from 'react-hot-toast';
 import {
   ArrowLeft,
   CreditCard,
@@ -20,41 +19,30 @@ import {
 import { useApp } from '../context/AppContext';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
-import { Modal } from '../components/common/Modal';
+import { TopUpModal } from '../components/common/TopUpModal';
+import { api } from '../services/api';
+import { formatDateTime, rupees } from '../utils/format';
 
 export const UserDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { users, transactions, anomalies, addUserBalance } = useApp();
+  const { users, transactions, anomalies, analytics, refresh } = useApp();
   const [isTopUpModalOpen, setIsTopUpModalOpen] = useState(false);
-  const [topUpAmount, setTopUpAmount] = useState(100);
+  const [weeklyUsage, setWeeklyUsage] = useState([]);   // real litres per day from the backend
 
   const user = users.find((u) => u.id === id) || users[0];
   const userTransactions = transactions.filter((t) => t.userId === user.id);
   const userAnomalies = anomalies.filter((a) => a.userId === user.id);
 
-  const mockUserDailyData = [
-    { day: 'Mon', liters: user.avgDailyUsage * 0.8 },
-    { day: 'Tue', liters: user.avgDailyUsage * 1.1 },
-    { day: 'Wed', liters: user.avgDailyUsage * 0.9 },
-    { day: 'Thu', liters: user.avgDailyUsage * 1.3 },
-    { day: 'Fri', liters: user.avgDailyUsage * 1.5 },
-    { day: 'Sat', liters: user.avgDailyUsage * 1.2 },
-    { day: 'Sun', liters: user.todayUsage || user.avgDailyUsage }
-  ];
+  // Normal usage / 3-sigma limit / daily quota, as calculated by the backend
+  const profile = analytics.overuse?.find((row) => row.userId === user.id);
 
-  const handleAddBalanceSubmit = async (e) => {
-    e.preventDefault();
-    if (topUpAmount > 0) {
-      try {
-        await addUserBalance(user.id, topUpAmount);
-        toast.success(`₹${topUpAmount} added to ${user.name}'s wallet!`);
-        setIsTopUpModalOpen(false);
-      } catch (err) {
-        toast.error(err.message);
-      }
-    }
-  };
+  useEffect(() => {
+    api
+      .getUserUsage(user.id)
+      .then((res) => setWeeklyUsage(res.usage))
+      .catch(() => setWeeklyUsage([]));
+  }, [user.id, user.todayUsage]);
 
   return (
     <div className="space-y-6 animate-fadeIn">
@@ -69,7 +57,7 @@ export const UserDetails = () => {
         </button>
         <div className="flex items-center gap-2">
           <Button icon={CreditCard} onClick={() => setIsTopUpModalOpen(true)}>
-            Add Prepaid Balance
+            Top up wallet (Razorpay)
           </Button>
           <Link to="/dispensing">
             <Button variant="secondary" icon={Droplets}>
@@ -109,7 +97,7 @@ export const UserDetails = () => {
         {/* Prepaid Wallet Balance Highlight */}
         <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 text-right shrink-0">
           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Prepaid Balance</span>
-          <span className="text-3xl font-black text-emerald-400 font-['Outfit']">₹{user.balance}</span>
+          <span className="text-3xl font-black text-emerald-400 font-['Outfit']">{rupees(user.balance)}</span>
         </div>
       </div>
 
@@ -118,34 +106,38 @@ export const UserDetails = () => {
         <div className="p-5 bg-white rounded-2xl border border-slate-100 shadow-sm">
           <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Water Used Today</span>
           <h3 className="text-2xl font-black text-sky-600 font-['Outfit'] mt-2">{user.todayUsage} L</h3>
-          <p className="text-xs text-slate-500 mt-1">Daily cap: {user.avgDailyUsage} L/day</p>
+          <p className={`text-xs mt-1 font-semibold ${profile?.aboveNormal || profile?.overQuota ? 'text-rose-600' : 'text-slate-500'}`}>
+            Limit {profile?.limit ?? '—'} L · quota {profile?.quota ?? user.dailyQuota} L
+          </p>
         </div>
 
         <div className="p-5 bg-white rounded-2xl border border-slate-100 shadow-sm">
           <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Monthly Water Used</span>
           <h3 className="text-2xl font-black text-slate-900 font-['Outfit'] mt-2">{user.monthlyUsage} L</h3>
-          <p className="text-xs text-emerald-600 font-bold mt-1">Normal hostel range</p>
+          <p className="text-xs text-slate-500 mt-1">This calendar month</p>
         </div>
 
         <div className="p-5 bg-white rounded-2xl border border-slate-100 shadow-sm">
           <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Payments Done</span>
-          <h3 className="text-2xl font-black text-emerald-600 font-['Outfit'] mt-2">₹{user.totalSpent}</h3>
-          <p className="text-xs text-slate-500 mt-1">Via Razorpay sandbox</p>
+          <h3 className="text-2xl font-black text-emerald-600 font-['Outfit'] mt-2">{rupees(user.totalSpent)}</h3>
+          <p className="text-xs text-slate-500 mt-1">Charged from the wallet</p>
         </div>
 
         <div className="p-5 bg-white rounded-2xl border border-slate-100 shadow-sm">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Average Daily Volume</span>
-          <h3 className="text-2xl font-black text-slate-900 font-['Outfit'] mt-2">{user.avgDailyUsage} L</h3>
-          <p className="text-xs text-slate-500 mt-1">Computed over 30 days</p>
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Normal Daily Use</span>
+          <h3 className="text-2xl font-black text-slate-900 font-['Outfit'] mt-2">{profile?.mean ?? user.avgDailyUsage} L</h3>
+          <p className="text-xs text-slate-500 mt-1">
+            {profile?.learned ? `Learned from ${profile.historyDays} days of history` : 'Starting value (not enough history yet)'}
+          </p>
         </div>
       </div>
 
       {/* Individual Consumption Chart */}
       <div className="p-6 bg-white rounded-3xl border border-slate-100 shadow-sm space-y-4">
-        <h3 className="text-base font-bold text-slate-900 font-['Outfit']">Weekly Water Dispensed ({user.name})</h3>
+        <h3 className="text-base font-bold text-slate-900 font-['Outfit']">Water dispensed – last 7 days ({user.name})</h3>
         <div className="h-64 w-full pt-2">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={mockUserDailyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+            <AreaChart data={weeklyUsage} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="userColor" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.4} />
@@ -155,8 +147,8 @@ export const UserDetails = () => {
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
               <XAxis dataKey="day" tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} />
               <YAxis tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} unit="L" />
-              <Tooltip formatter={(val) => [`${val.toFixed(1)} L`, 'Water']} />
-              <Area type="monotone" dataKey="liters" stroke="#06b6d4" strokeWidth={3} fill="url(#userColor)" />
+              <Tooltip formatter={(val) => [`${Number(val).toFixed(1)} L`, 'Water']} labelFormatter={(day, rows) => rows?.[0]?.payload?.date || day} />
+              <Area isAnimationActive={false} type="monotone" dataKey="liters" stroke="#06b6d4" strokeWidth={3} fill="url(#userColor)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -214,19 +206,22 @@ export const UserDetails = () => {
                   <tr key={txn.id}>
                     <td className="font-mono font-bold text-sky-600">{txn.id}</td>
                     <td className="font-semibold text-slate-800">{txn.hostelBlock || user.hostelBlock}</td>
-                    <td className="font-bold text-emerald-600">₹{txn.amount}</td>
+                    <td className="font-bold text-emerald-600">
+                      {rupees(txn.amount)}
+                      {txn.refund > 0 && <span className="block text-[10px] text-violet-500">+{rupees(txn.refund)} refunded</span>}
+                    </td>
                     <td className="font-semibold text-slate-800">{txn.waterLiters} L</td>
                     <td>
-                      <Badge variant={txn.paymentStatus === 'Paid' ? 'success' : 'danger'}>
+                      <Badge variant={txn.paymentStatus === 'Paid' ? 'success' : txn.paymentStatus === 'Partly refunded' ? 'info' : 'danger'}>
                         {txn.paymentStatus}
                       </Badge>
                     </td>
                     <td>
-                      <Badge variant={txn.dispensingStatus === 'Completed' ? 'success' : 'info'}>
+                      <Badge variant={txn.dispensingStatus === 'Completed' ? 'success' : txn.dispensingStatus === 'Dispensing' ? 'info' : 'danger'}>
                         {txn.dispensingStatus}
                       </Badge>
                     </td>
-                    <td className="text-xs text-slate-500">{txn.timestamp}</td>
+                    <td className="text-xs text-slate-500">{formatDateTime(txn.timestamp)}</td>
                   </tr>
                 ))
               )}
@@ -236,30 +231,7 @@ export const UserDetails = () => {
       </div>
 
       {/* Modal for Balance Add */}
-      <Modal isOpen={isTopUpModalOpen} onClose={() => setIsTopUpModalOpen(false)} title={`Top Up Balance for ${user.name}`}>
-        <form onSubmit={handleAddBalanceSubmit} className="space-y-4">
-          <div className="text-xs">
-            <p className="text-slate-600">Hostel Block: <strong className="text-slate-900">{user.hostelBlock}</strong> ({user.roomNo})</p>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Top-up Amount (₹)</label>
-            <input
-              type="number"
-              min="10"
-              step="10"
-              value={topUpAmount}
-              onChange={(e) => setTopUpAmount(Number(e.target.value))}
-              className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500"
-            />
-          </div>
-          <div className="pt-4 flex items-center justify-end gap-2 border-t border-slate-100">
-            <Button variant="outline" type="button" onClick={() => setIsTopUpModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="submit">Confirm Top-Up</Button>
-          </div>
-        </form>
-      </Modal>
+      <TopUpModal user={isTopUpModalOpen ? user : null} onClose={() => setIsTopUpModalOpen(false)} onDone={refresh} />
     </div>
   );
 };
