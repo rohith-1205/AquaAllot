@@ -1,19 +1,35 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
-import { Settings as SettingsIcon, Sparkles, CreditCard, Shield, Server } from 'lucide-react';
+import { Settings as SettingsIcon, Sparkles, CreditCard, Shield, Server, Radio, RotateCcw } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Button } from '../components/common/Button';
 
 export const Settings = () => {
-  const { demoMode, toggleDemoMode, waterPricePerLiter, setWaterPricePerLiter } = useApp();
+  const { demoMode, toggleDemoMode, waterPricePerLiter, setWaterPricePerLiter, mqttStatus, resetDemoData } = useApp();
   const [rate, setRate] = useState(waterPricePerLiter);
+  useEffect(() => setRate(waterPricePerLiter), [waterPricePerLiter]); // show the backend's price once loaded
   const [apiBaseUrl, setApiBaseUrl] = useState(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api');
   const [razorpayKey, setRazorpayKey] = useState(import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_aquaallot_demo2026');
 
-  const handleSaveSettings = (e) => {
+  // The price is saved in the backend, so the Wokwi station charges the new rate too
+  const handleSaveSettings = async (e) => {
     e.preventDefault();
-    setWaterPricePerLiter(Number(rate));
-    toast.success('System settings saved successfully!');
+    try {
+      await setWaterPricePerLiter(Number(rate));
+      toast.success(`Saved! Water now costs ₹${rate}/L at every station.`);
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
+  const handleResetDemo = async () => {
+    if (!window.confirm('Reset all users, wallets, transactions and alerts to the demo data?')) return;
+    try {
+      await resetDemoData();
+      toast.success('Demo data restored');
+    } catch (err) {
+      toast.error(err.message);
+    }
   };
 
   return (
@@ -127,6 +143,34 @@ export const Settings = () => {
               className="w-full px-3.5 py-2 font-mono text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500"
             />
           </div>
+        </div>
+
+        {/* Section 5: Live Wokwi station (MQTT) + demo data */}
+        <div className="p-6 bg-white rounded-3xl border border-slate-100 shadow-sm space-y-4">
+          <div className="flex items-center gap-2">
+            <Radio className="w-5 h-5 text-violet-600" />
+            <h3 className="text-base font-bold text-slate-900 font-['Outfit']">Wokwi Station Link (MQTT)</h3>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+              <p className="text-slate-400 font-semibold">Broker</p>
+              <p className="font-mono font-bold text-slate-800">{mqttStatus ? `${mqttStatus.broker}:${mqttStatus.port}` : '—'}</p>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+              <p className="text-slate-400 font-semibold">Topic root (must match sketch.ino)</p>
+              <p className="font-mono font-bold text-slate-800 break-all">{mqttStatus?.topicRoot || '—'}</p>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+              <p className="text-slate-400 font-semibold">Status</p>
+              <p className={`font-bold ${mqttStatus?.connected ? 'text-emerald-600' : 'text-rose-600'}`}>
+                {mqttStatus?.connected ? 'Connected' : mqttStatus?.error || 'Not connected'}
+              </p>
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-400">Change these in backend/.env (MQTT_BROKER, MQTT_TOPIC_ROOT) and in the SETTINGS block of sketch.ino.</p>
+          <Button type="button" variant="outline" icon={RotateCcw} onClick={handleResetDemo}>
+            Reset demo data
+          </Button>
         </div>
 
         <Button type="submit" size="lg" className="w-full py-3">

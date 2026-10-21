@@ -14,6 +14,7 @@ import { Stations } from './pages/Stations';
 import { Settings } from './pages/Settings';
 import { Login } from './pages/Login';
 import { KioskDispenser } from './pages/KioskDispenser';
+import { LiveStation } from './pages/LiveStation';
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
             <Route path="/" element={<DashboardLayout />}>
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="dashboard" element={<Dashboard />} />
+              <Route path="live" element={<LiveStation />} />
               <Route path="users" element={<Users />} />
               <Route path="users/:id" element={<UserDetails />} />
               <Route path="dispensing" element={<Dispensing />} />

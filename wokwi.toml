@@ -1,4 +1,9 @@
+# Only needed for the Wokwi VS Code extension - wokwi.com ignores this file.
+# Recommended: run the simulation on wokwi.com (see DEMO_GUIDE.md).
+# For VS Code: open sketch.ino in Arduino IDE -> Sketch -> "Export Compiled Binary",
+# then point the two lines below at the exported .bin / .elf files.
 [wokwi]
 version = 1
-firmware = "esp32-wokwi/sketch.ino"
+firmware = "esp32-wokwi/build/sketch.ino.bin"
+elf = "esp32-wokwi/build/sketch.ino.elf"
 diagram = "esp32-wokwi/diagram.json"

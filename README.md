@@ -79,36 +79,35 @@
 
 ## 🚀 Quick Start
 
-### Prerequisites
-```bash
-# Python 3.8+
-# Node.js 14+
-# npm or yarn
-```
+> 📖 **Full step-by-step demo walkthrough: [DEMO_GUIDE.md](DEMO_GUIDE.md)**
 
-### 1. Clone & Setup Backend
+### Prerequisites
+- Python 3.9+ (tick "Add to PATH" on Windows)
+- Node.js 18+
+
+### 1. Backend (Flask API + MQTT bridge to Wokwi)
 ```bash
 cd backend
-pip install -r requirements.txt
-python app.py
+npm run dev          # installs Python packages the first time, then starts app.py
 ```
-Backend runs on: `http://localhost:5000/api`
+Backend runs on `http://localhost:5000/api` (check `http://localhost:5000/api/health`).
 
-### 2. Setup Frontend
+### 2. Dashboard (React)
 ```bash
-cd frontend
+# in the project root folder (where package.json is)
 npm install
 npm run dev
 ```
-Dashboard runs on: `http://localhost:5173`
+Dashboard runs on `http://localhost:5173` → open **Live Station** in the sidebar.
 
-### 3. Setup Wokwi Simulation
-```bash
-1. Visit https://wokwi.com
-2. Click "Create a project"
-3. Upload esp32-wokwi/diagram.json
-4. Upload esp32-wokwi/AquaAllot_ESP32_Firmware.ino
-5. Click "Start simulation"
+### 3. Wokwi simulation (wokwi.com)
+1. Open https://wokwi.com/projects/new/esp32
+2. Replace `sketch.ino` and `diagram.json` with the files from `esp32-wokwi/`
+3. Add a file `libraries.txt` with the contents of `esp32-wokwi/libraries.txt`
+4. Press ▶ – the OLED shows **Cloud: ONLINE** and the dashboard shows **Wokwi ESP32: Online**
+
+```
+Wokwi ESP32 ──MQTT──► broker.hivemq.com ◄──MQTT── backend (your laptop) ◄──HTTP── dashboard
 ```
 
 ---
@@ -129,14 +128,22 @@ AquaAllot-Review2/
 │   ├── package.json
 │   └── vite.config.js
 │
-├── backend/                           # Flask API Server
-│   ├── app.py                        # 🔗 REST API endpoints
-│   ├── requirements.txt              # 📦 Dependencies
-│   └── .env                          # ⚙️ Configuration
+├── backend/                           # Flask API Server  (npm run dev)
+│   ├── app.py                        # 🔗 REST API routes for the dashboard
+│   ├── services.py                   # 📏 Business rules: card, order, payment, anomaly
+│   ├── station_bridge.py             # 📡 MQTT link to the Wokwi ESP32 + live state
+│   ├── payments.py                   # 💳 Razorpay order + signature check
+│   ├── store.py                      # 🗄️ MongoDB or in-memory storage
+│   ├── demo_data.py                  # 🌱 Demo users / Wokwi cards / stations
+│   ├── dev.cjs + package.json        # ▶️ `npm run dev` launcher
+│   └── .env                          # ⚙️ Razorpay keys, MQTT settings
 │
-├── esp32-wokwi/                      # Hardware Simulation
+├── esp32-wokwi/                      # Hardware Simulation (paste into wokwi.com)
+│   ├── sketch.ino                    # 📲 Firmware (WiFi + MQTT + offline mode)
 │   ├── diagram.json                  # 🔌 Circuit diagram
-│   └── AquaAllot_ESP32_Firmware.ino  # 📲 Firmware code
+│   └── libraries.txt                 # 📚 Arduino libraries for Wokwi
+│
+├── tools/fake_esp32.py               # 🧪 Pretend ESP32 for testing without Wokwi
 │
 ├── docs/                             # Documentation
 │   ├── API_SPECIFICATION.md
@@ -189,25 +196,30 @@ VITE_RAZORPAY_KEY_ID=rzp_test_aquaallot_demo2026
 
 ## 💻 Hardware Components (Wokwi)
 
-| Component | Model | Pin | Purpose |
-|-----------|-------|-----|---------|
-| Microcontroller | ESP32-WROOM-32 | - | Main controller |
-| RFID Reader | MFRC522 | SPI (GPIO 5,1,3,21) | User authentication |
-| Flow Sensor | YF-S201 | GPIO 35 | Water measurement |
-| Solenoid | 12V Relay | GPIO 19 | Valve control |
-| Display | SSD1306 | I2C (GPIO 22,23) | Status display |
-| LEDs | 3× LEDs | GPIO 27,14,12 | Status indicators |
-| Buzzer | Active Buzzer | GPIO 26 | Alerts |
-| Button | Push Button | GPIO 33 | Manual override |
+| Component | Wokwi part | ESP32 pin | Purpose |
+|-----------|-----------|-----------|---------|
+| Microcontroller | ESP32 DevKit C v4 | - | Main controller (WiFi → MQTT) |
+| RFID Reader | MFRC522 | SCK 18, MISO 19, MOSI 23, SDA 5, RST 27 | Student card |
+| OLED | SSD1306 128×64 | SDA 21, SCL 22 | Screens for every step |
+| Solenoid valve | Relay module | GPIO 26 | Opens / closes water |
+| Flow sensor | Clock generator 150 Hz | GPIO 25 | 450 pulses = 1 L (20 L/min) |
+| Buzzer | Buzzer | GPIO 14 | Beeps |
+| LEDs | Green / Blue / Red | GPIO 2 / 4 / 12 | System / valve / alert |
+| Buttons | 1 L, 2 L, 5 L, PAY, ANOMALY | GPIO 32, 33, 16, 17, 13 | Keyboard keys 1, 2, 5, p, a |
+| Leak switch | Slide switch | GPIO 34 | Right = simulate a pipe leak |
 
 ---
 
-## 🎯 Demo Test Users
+## 🎯 Demo Cards (built into the Wokwi RFID reader)
 
-| RFID | Name | Block | Balance | Status |
-|------|------|-------|---------|--------|
-| A1B2C3D4 | Arun Kumar | A | ₹250.50 | Active |
-| E5F6G7H8 | Rahul Sharma | B | ₹175.25 | Active |
+| Wokwi card | UID | Student | What it shows |
+|------------|-----|---------|---------------|
+| Blue | 01:02:03:04 | Rohith (₹150) | Happy path, wallet payment |
+| Green | 11:22:33:44 | Deepankishor (₹8) | Low wallet → pay with Razorpay on the dashboard |
+| Yellow | 55:66:77:88 | Sanjay (₹200) | 5 L exceeds his 3-sigma limit → AI anomaly |
+| Key fob | C0:FF:EE:99 | Karthik N | Suspended → access denied |
+| Red | AA:BB:CC:DD | – | Unknown card → access denied |
+| NFC tag | 04:11:22:33:44:55:66 | – | Register it live on the Users page |
 
 ---
 
@@ -327,20 +339,15 @@ See `TESTING_GUIDE.md` for:
 
 ### Quick Test
 ```bash
-# Terminal 1: Start Backend
-cd backend && python app.py
+# Terminal 1: backend
+cd backend && npm run dev
 
-# Terminal 2: Start Frontend
-cd frontend && npm run dev
+# Terminal 2: dashboard (project root)
+npm run dev
 
-# Browser 3: Open Wokwi
-https://wokwi.com
-# Load esp32-wokwi/diagram.json
-# Upload AquaAllot_ESP32_Firmware.ino
-# Start simulation
-
-# Browser: Navigate to
-http://localhost:5173
+# Browser: http://localhost:5173/live  +  your Wokwi project on wokwi.com
+# No Wokwi? Pretend to be the ESP32:
+python tools/fake_esp32.py --demo
 ```
 
 ---

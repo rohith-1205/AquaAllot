@@ -11,7 +11,7 @@ export const Users = () => {
   const { users, addNewUser, addUserBalance } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
   const [hostelFilter, setHostelFilter] = useState('All'); // All | Hostel Block A | Hostel Block B | PG Block C
-  const [statusFilter, setStatusFilter] = useState('All'); // All | Active | Warning | Inactive
+  const [statusFilter, setStatusFilter] = useState('All'); // All | Active | Warning | Suspended
 
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
   const [isTopUpModalOpen, setIsTopUpModalOpen] = useState(false);
@@ -43,33 +43,42 @@ export const Users = () => {
   const totalWaterUsedAll = filteredUsers.reduce((acc, u) => acc + u.todayUsage, 0);
   const totalPaymentsDoneAll = filteredUsers.reduce((acc, u) => acc + u.totalSpent, 0);
 
-  const handleCreateUser = (e) => {
+  // Saves the student in the backend, so the card works at the Wokwi station right away
+  const handleCreateUser = async (e) => {
     e.preventDefault();
     if (!newUserName || !newUserEmail || !newUserRfid) {
       toast.error('Please complete all required student fields.');
       return;
     }
-    const created = addNewUser({
-      name: newUserName,
-      email: newUserEmail,
-      hostelBlock: newUserHostel,
-      roomNo: newUserRoom,
-      rfid: newUserRfid.toUpperCase()
-    });
-    toast.success(`Student ${created.name} (${created.hostelBlock}) registered!`);
-    setIsAddUserModalOpen(false);
-    setNewUserName('');
-    setNewUserEmail('');
-    setNewUserRfid('');
+    try {
+      const created = await addNewUser({
+        name: newUserName,
+        email: newUserEmail,
+        hostelBlock: newUserHostel,
+        roomNo: newUserRoom,
+        rfid: newUserRfid.toUpperCase()
+      });
+      toast.success(`${created.name} registered with card ${created.rfid} – try it in Wokwi!`);
+      setIsAddUserModalOpen(false);
+      setNewUserName('');
+      setNewUserEmail('');
+      setNewUserRfid('');
+    } catch (err) {
+      toast.error(err.message);
+    }
   };
 
-  const handleAddBalanceSubmit = (e) => {
+  const handleAddBalanceSubmit = async (e) => {
     e.preventDefault();
     if (selectedUserForTopUp && topUpAmount > 0) {
-      addUserBalance(selectedUserForTopUp.id, topUpAmount);
-      toast.success(`₹${topUpAmount} added to ${selectedUserForTopUp.name}'s balance.`);
-      setIsTopUpModalOpen(false);
-      setSelectedUserForTopUp(null);
+      try {
+        await addUserBalance(selectedUserForTopUp.id, topUpAmount);
+        toast.success(`₹${topUpAmount} added to ${selectedUserForTopUp.name}'s wallet.`);
+        setIsTopUpModalOpen(false);
+        setSelectedUserForTopUp(null);
+      } catch (err) {
+        toast.error(err.message);
+      }
     }
   };
 
@@ -165,7 +174,7 @@ export const Users = () => {
 
           {/* Status Filter Tabs */}
           <div className="flex items-center gap-1 p-1 bg-slate-200/60 rounded-xl text-xs font-semibold">
-            {['All', 'Active', 'Warning', 'Inactive'].map((tab) => (
+            {['All', 'Active', 'Warning', 'Suspended'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => setStatusFilter(tab)}
@@ -246,7 +255,7 @@ export const Users = () => {
                     </td>
                     <td>
                       <Badge
-                        variant={usr.status === 'Active' ? 'success' : usr.status === 'Warning' ? 'warning' : 'neutral'}
+                        variant={usr.status === 'Active' ? 'success' : usr.status === 'Warning' ? 'warning' : 'danger'}
                       >
                         {usr.status}
                       </Badge>
@@ -338,7 +347,7 @@ export const Users = () => {
             <input
               type="text"
               required
-              placeholder="e.g. G7H8I9J0"
+              placeholder="e.g. 04:11:22:33:44:55:66 (Wokwi NFC tag)"
               value={newUserRfid}
               onChange={(e) => setNewUserRfid(e.target.value)}
               className="w-full px-3.5 py-2 text-xs font-mono uppercase border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500"

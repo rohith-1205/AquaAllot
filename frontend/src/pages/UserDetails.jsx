@@ -43,12 +43,16 @@ export const UserDetails = () => {
     { day: 'Sun', liters: user.todayUsage || user.avgDailyUsage }
   ];
 
-  const handleAddBalanceSubmit = (e) => {
+  const handleAddBalanceSubmit = async (e) => {
     e.preventDefault();
     if (topUpAmount > 0) {
-      addUserBalance(user.id, topUpAmount);
-      toast.success(`₹${topUpAmount} added to ${user.name}'s balance!`);
-      setIsTopUpModalOpen(false);
+      try {
+        await addUserBalance(user.id, topUpAmount);
+        toast.success(`₹${topUpAmount} added to ${user.name}'s wallet!`);
+        setIsTopUpModalOpen(false);
+      } catch (err) {
+        toast.error(err.message);
+      }
     }
   };
 
@@ -86,7 +90,7 @@ export const UserDetails = () => {
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-2xl font-black font-['Outfit']">{user.name}</h2>
-              <Badge variant={user.status === 'Active' ? 'success' : user.status === 'Warning' ? 'warning' : 'neutral'}>
+              <Badge variant={user.status === 'Active' ? 'success' : user.status === 'Warning' ? 'warning' : 'danger'}>
                 {user.status}
               </Badge>
             </div>

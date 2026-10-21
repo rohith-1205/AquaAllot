@@ -42,7 +42,7 @@ Dashboard will run on: `http://localhost:5173`
 
 ### 5. **Access Wokwi Simulation**
 - Open `esp32-wokwi/diagram.json` in [Wokwi Editor](https://wokwi.com)
-- Upload `esp32-wokwi/AquaAllot_ESP32_Firmware.ino`
+- Upload `esp32-wokwi/sketch.ino`
 - Start simulation and monitor in real-time
 
 ---
@@ -71,7 +71,7 @@ AquaAllot-Review2/
 │
 ├── esp32-wokwi/
 │   ├── diagram.json                   🔌 Hardware diagram
-│   └── AquaAllot_ESP32_Firmware.ino   📲 ESP32 code
+│   └── sketch.ino   📲 ESP32 code
 │
 ├── docs/
 │   ├── API_SPECIFICATION.md
@@ -368,7 +368,7 @@ The system uses:
 
 ## 🎓 Learning Resources
 
-- **RFID**: `esp32-wokwi/AquaAllot_ESP32_Firmware.ino` (lines 150-180)
+- **RFID**: `esp32-wokwi/sketch.ino` (lines 150-180)
 - **Payment**: `backend/app.py` (lines 200-250)
 - **Anomaly**: `backend/app.py` (lines 120-145)
 - **Frontend**: `frontend/src/pages/Dashboard.jsx` (entire file)

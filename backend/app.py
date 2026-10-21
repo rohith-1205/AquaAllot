@@ -1,737 +1,393 @@
 """
 ╔════════════════════════════════════════════════════════════════════════════╗
+║                      AquaAllot Backend (Flask API)                         ║
 ║                                                                            ║
-║                 AquaAllot Backend Flask API with MongoDB                   ║
-║                         Production Ready v2.1.0                            ║
+║   Dashboard (React)  ── HTTP ──►  this API  ◄── MQTT ──  Wokwi ESP32        ║
 ║                                                                            ║
-║  Database: MongoDB (aquaallot db)                                          ║
-║  Collections: users, stations, transactions, alerts, anomalies, settings   ║
+║   Run it:   cd backend  →  npm run dev     (or: python app.py)             ║
 ╚════════════════════════════════════════════════════════════════════════════╝
+
+Files in this folder:
+    app.py             HTTP routes for the dashboard (this file)
+    services.py        business rules: card check, orders, payments, anomaly check
+    station_bridge.py  MQTT link to the Wokwi ESP32 + live station state
+    payments.py        Razorpay helpers (create order, verify signature)
+    store.py           data layer: MongoDB if running, otherwise in-memory
+    demo_data.py       the demo users / cards / stations
 """
 
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-from datetime import datetime, timedelta
-import json
-import uuid
-import hashlib
-import hmac
 import logging
-from dotenv import load_dotenv
 import os
-import pymongo
-from bson import json_util
+from datetime import datetime
 
-# Load environment variables
-load_dotenv()
+from dotenv import load_dotenv
+from flask import Flask, jsonify, request
+from flask_cors import CORS
 
-# ==================== INITIALIZATION ====================
+import demo_data
+import payments
+import services
+from services import ServiceError
+from station_bridge import StationBridge
+from store import Store
+
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+
+# ==================== SETTINGS (override them in backend/.env) ====================
+
+PORT = int(os.getenv("PORT", "5000"))
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
+
+MQTT_ENABLED = os.getenv("MQTT_ENABLED", "true").lower() != "false"
+MQTT_BROKER = os.getenv("MQTT_BROKER", "broker.hivemq.com")
+MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_TRANSPORT = os.getenv("MQTT_TRANSPORT", "tcp")      # "tcp" or "websockets" (port 8000) if 1883 is blocked
+MQTT_TOPIC_ROOT = os.getenv("MQTT_TOPIC_ROOT", "aquaallot-demo-rohith1205")  # must match sketch.ino
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(message)s", datefmt="%H:%M:%S")
+logging.getLogger("werkzeug").setLevel(logging.WARNING)  # hide the 1-per-second polling requests
+log = logging.getLogger("aquaallot")
+
+# ==================== APP, DATABASE, MQTT BRIDGE ====================
+
 app = Flask(__name__)
+app.config["JSON_SORT_KEYS"] = False
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# Configuration
-app.config['JSON_SORT_KEYS'] = False
-RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', '')
-RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', '')
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-
-# Logging Setup
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+store = Store(MONGO_URI)
+bridge = StationBridge(
+    store, MQTT_BROKER, MQTT_PORT, MQTT_TOPIC_ROOT,
+    transport=MQTT_TRANSPORT, enabled=MQTT_ENABLED, stations=[demo_data.WIRED_STATION_ID],
 )
-logger = logging.getLogger(__name__)
 
-# ==================== MONGODB DATABASE SETUP ====================
-mongo_client = None
-db = None
-using_mongo = False
 
-try:
-    mongo_client = pymongo.MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000)
-    mongo_client.server_info() # Trigger exception if unreachable
-    db = mongo_client['aquaallot']
-    using_mongo = True
-    logger.info(f"✓ Connected to MongoDB at {MONGO_URI} (database: aquaallot)")
-except Exception as e:
-    logger.warning(f"⚠ MongoDB connection failed ({e}). Falling back to in-memory mode.")
-    using_mongo = False
-
-# Fallback In-Memory Storage
-IN_MEMORY_DB = {
-    'users': [],
-    'stations': [],
-    'transactions': [],
-    'alerts': [],
-    'anomalies': [],
-    'settings': {'waterPricePerLiter': 5}
-}
-
-# Initial Seed Data
-INITIAL_USERS = [
-    {
-        "id": "USR001",
-        "name": "Arun Kumar",
-        "hostelBlock": "Hostel Block A",
-        "roomNo": "A-204",
-        "rfid": "A1B2C3D4",
-        "email": "arun@example.com",
-        "balance": 120.0,
-        "todayUsage": 4.2,
-        "monthlyUsage": 86.5,
-        "totalSpent": 432.5,
-        "status": "Active",
-        "avgDailyUsage": 2.8,
-        "avatar": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80"
-    },
-    {
-        "id": "USR002",
-        "name": "Rahul Sharma",
-        "hostelBlock": "Hostel Block B",
-        "roomNo": "B-112",
-        "rfid": "B2C3D4E5",
-        "email": "rahul@example.com",
-        "balance": 65.0,
-        "todayUsage": 8.7,
-        "monthlyUsage": 142.0,
-        "totalSpent": 710.0,
-        "status": "Warning",
-        "avgDailyUsage": 2.5,
-        "avatar": "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=150&q=80"
-    },
-    {
-        "id": "USR003",
-        "name": "Priya Patel",
-        "hostelBlock": "Hostel Block A",
-        "roomNo": "A-305",
-        "rfid": "C3D4E5F6",
-        "email": "priya@example.com",
-        "balance": 240.0,
-        "todayUsage": 2.1,
-        "monthlyUsage": 62.4,
-        "totalSpent": 312.0,
-        "status": "Active",
-        "avgDailyUsage": 2.0,
-        "avatar": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80"
-    },
-    {
-        "id": "USR004",
-        "name": "Vikram Singh",
-        "hostelBlock": "PG Block C",
-        "roomNo": "C-101",
-        "rfid": "D4E5F6G7",
-        "email": "vikram@example.com",
-        "balance": 15.0,
-        "todayUsage": 1.5,
-        "monthlyUsage": 45.2,
-        "totalSpent": 226.0,
-        "status": "Active",
-        "avgDailyUsage": 1.8,
-        "avatar": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80"
-    },
-    {
-        "id": "USR005",
-        "name": "Ananya Roy",
-        "hostelBlock": "Hostel Block B",
-        "roomNo": "B-218",
-        "rfid": "E5F6G7H8",
-        "email": "ananya@example.com",
-        "balance": 310.0,
-        "todayUsage": 3.8,
-        "monthlyUsage": 94.0,
-        "totalSpent": 470.0,
-        "status": "Active",
-        "avgDailyUsage": 3.1,
-        "avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80"
-    }
-]
-
-INITIAL_STATIONS = [
-    {
-        "id": "STN-001",
-        "name": "Station A-01",
-        "location": "Hostel Block A - Ground Floor",
-        "hostelBlock": "Hostel Block A",
-        "status": "Online",
-        "flowRate": 4.8,
-        "todayUsage": 342.0,
-        "temperature": "24.5 °C",
-        "lastSync": 12,
-        "esp32": "Connected",
-        "rfidReader": "Operational",
-        "flowSensor": "Operational",
-        "solenoidValve": "Closed",
-        "oledDisplay": "Operational",
-        "wifiSignal": -42,
-        "firmware": "v2.4.1"
-    },
-    {
-        "id": "STN-002",
-        "name": "Station A-02",
-        "location": "Hostel Block B - 1st Floor",
-        "hostelBlock": "Hostel Block B",
-        "status": "Online",
-        "flowRate": 3.9,
-        "todayUsage": 287.0,
-        "temperature": "23.8 °C",
-        "lastSync": 8,
-        "esp32": "Connected",
-        "rfidReader": "Operational",
-        "flowSensor": "Operational",
-        "solenoidValve": "Closed",
-        "oledDisplay": "Operational",
-        "wifiSignal": -54,
-        "firmware": "v2.4.1"
-    },
-    {
-        "id": "STN-003",
-        "name": "Station A-03",
-        "location": "PG Block C - Dining Hall",
-        "hostelBlock": "PG Block C",
-        "status": "Warning",
-        "flowRate": 7.8,
-        "todayUsage": 421.0,
-        "temperature": "26.1 °C",
-        "lastSync": 5,
-        "esp32": "Connected",
-        "rfidReader": "Operational",
-        "flowSensor": "Warning: High Flow",
-        "solenoidValve": "Closed",
-        "oledDisplay": "Operational",
-        "wifiSignal": -61,
-        "firmware": "v2.4.0",
-        "alertMessage": "Unusual flow rate detected"
-    }
-]
-
-INITIAL_TRANSACTIONS = [
-    {
-        "id": "TXN-1001",
-        "userId": "USR001",
-        "userName": "Arun Kumar",
-        "hostelBlock": "Hostel Block A",
-        "rfid": "A1B2C3D4",
-        "amount": 25,
-        "waterLiters": 5,
-        "paymentStatus": "Paid",
-        "dispensingStatus": "Completed",
-        "paymentMethod": "Razorpay (UPI)",
-        "razorpayPaymentId": "pay_N8z9K0xL1M2N3O",
-        "razorpayOrderId": "order_N8z9A0bC1D2E3F",
-        "stationId": "STN-001",
-        "timestamp": "2026-09-18 10:42:15"
-    },
-    {
-        "id": "TXN-1002",
-        "userId": "USR002",
-        "userName": "Rahul Sharma",
-        "hostelBlock": "Hostel Block B",
-        "rfid": "B2C3D4E5",
-        "amount": 50,
-        "waterLiters": 10,
-        "paymentStatus": "Paid",
-        "dispensingStatus": "Completed",
-        "paymentMethod": "Razorpay (Card)",
-        "razorpayPaymentId": "pay_P9a1L1yM2N3O4P",
-        "razorpayOrderId": "order_P9a1B0cD2E3F4G",
-        "stationId": "STN-003",
-        "timestamp": "2026-09-18 11:15:30"
-    }
-]
-
-INITIAL_ALERTS = [
-    {
-        "id": "ALT-201",
-        "severity": "Critical",
-        "title": "Unusual Consumption Spike",
-        "description": "Student Rahul Sharma (Hostel Block B) exceeded daily threshold (+100% variance).",
-        "timestamp": "10 minutes ago",
-        "stationId": "STN-003",
-        "userId": "USR002",
-        "status": "Unresolved"
-    },
-    {
-        "id": "ALT-202",
-        "severity": "Warning",
-        "title": "High Flow Rate Detected",
-        "description": "Station A-03 (PG Block C) registered flow rate of 7.8 L/min.",
-        "timestamp": "25 minutes ago",
-        "stationId": "STN-003",
-        "userId": None,
-        "status": "Unresolved"
-    }
-]
-
-INITIAL_ANOMALIES = [
-    {
-        "id": "ANOM-01",
-        "userId": "USR002",
-        "userName": "Rahul Sharma",
-        "hostelBlock": "Hostel Block B",
-        "mean": 2.5,
-        "stdDev": 0.3,
-        "upperThreshold": 3.4,
-        "observed": 8.7,
-        "deviation": "+248%",
-        "severity": "Critical",
-        "reason": "Water consumption sharply exceeded 3-Sigma threshold (3.4 L). Potential valve leak or shared card.",
-        "timestamp": "Today, 11:15 AM",
-        "status": "Investigating"
-    }
-]
-
-def seed_database_if_empty():
-    """Seed MongoDB collections if they are empty"""
-    if not using_mongo:
-        IN_MEMORY_DB['users'] = list(INITIAL_USERS)
-        IN_MEMORY_DB['stations'] = list(INITIAL_STATIONS)
-        IN_MEMORY_DB['transactions'] = list(INITIAL_TRANSACTIONS)
-        IN_MEMORY_DB['alerts'] = list(INITIAL_ALERTS)
-        IN_MEMORY_DB['anomalies'] = list(INITIAL_ANOMALIES)
+def seed_demo_data(force=False):
+    """Load demo_data.py into the store (always for in-memory, once per SEED_VERSION for MongoDB)."""
+    meta = store.find_one("meta", id="seed") or {}
+    if not force and store.using_mongo and meta.get("version") == demo_data.SEED_VERSION:
         return
-
-    if db['users'].count_documents({}) == 0:
-        db['users'].insert_many(INITIAL_USERS)
-        logger.info("🌱 Seeded MongoDB 'users' collection")
-
-    if db['stations'].count_documents({}) == 0:
-        db['stations'].insert_many(INITIAL_STATIONS)
-        logger.info("🌱 Seeded MongoDB 'stations' collection")
-
-    if db['transactions'].count_documents({}) == 0:
-        db['transactions'].insert_many(INITIAL_TRANSACTIONS)
-        logger.info("🌱 Seeded MongoDB 'transactions' collection")
-
-    if db['alerts'].count_documents({}) == 0:
-        db['alerts'].insert_many(INITIAL_ALERTS)
-        logger.info("🌱 Seeded MongoDB 'alerts' collection")
-
-    if db['anomalies'].count_documents({}) == 0:
-        db['anomalies'].insert_many(INITIAL_ANOMALIES)
-        logger.info("🌱 Seeded MongoDB 'anomalies' collection")
-
-# Seed on startup
-seed_database_if_empty()
-
-# ==================== UTILITY FUNCTIONS ====================
-def clean_mongo_doc(doc):
-    """Remove ObjectId for clean JSON output"""
-    if not doc:
-        return doc
-    if isinstance(doc, list):
-        return [clean_mongo_doc(d) for d in doc]
-    if isinstance(doc, dict):
-        d = dict(doc)
-        d.pop('_id', None)
-        return d
-    return doc
-
-def verify_razorpay_signature(order_id, payment_id, signature):
-    """Verify Razorpay payment signature using HMAC-SHA256"""
-    message = f"{order_id}|{payment_id}"
-    generated_signature = hmac.new(
-        RAZORPAY_KEY_SECRET.encode(),
-        message.encode(),
-        hashlib.sha256
-    ).hexdigest()
-    
-    return generated_signature == signature
-
-def check_anomaly(user_id, consumed_liters, mean=2.8, std_dev=0.8):
-    """3-Sigma Anomaly Detection"""
-    threshold = mean + (3 * std_dev)
-    is_anomaly = consumed_liters > threshold
-    return {
-        'is_anomaly': is_anomaly,
-        'observed': consumed_liters,
-        'threshold': threshold,
-        'mean': mean,
-        'std_dev': std_dev,
-        'deviation': f"+{round(((consumed_liters - mean) / std_dev) * 100)}%" if std_dev > 0 else "0%"
-    }
-
-def create_response(success, data=None, message="", status_code=200):
-    """Standardized API response"""
-    response = {
-        'success': success,
-        'message': message,
-        'timestamp': datetime.now().isoformat()
-    }
-    if data:
-        response.update(data)
-    return jsonify(response), status_code
-
-# ==================== CORS HEADERS MIDDLEWARE ====================
-@app.after_request
-def set_cors_headers(response):
-    response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Station-ID'
-    return response
-
-# ==================== ROUTE: VERIFY RFID ====================
-@app.route('/api/verify_rfid', methods=['POST', 'OPTIONS'])
-def verify_rfid():
-    if request.method == 'OPTIONS':
-        return '', 204
-    
-    data = request.get_json() or {}
-    rfid_uid = data.get('rfid_uid', '').upper()
-    
-    logger.info(f"🔐 RFID Verification: UID={rfid_uid}")
-    
-    if using_mongo:
-        user = db['users'].find_one({'rfid': rfid_uid})
-    else:
-        user = next((u for u in IN_MEMORY_DB['users'] if u['rfid'].upper() == rfid_uid), None)
-    
-    if not user:
-        return create_response(False, message="RFID card not registered", status_code=404)
-    
-    return create_response(
-        True,
-        data={'authorized': True, 'user': clean_mongo_doc(user)},
-        message="RFID authentication successful"
-    )
-
-# ==================== ROUTE: CREATE PAYMENT ORDER ====================
-@app.route('/api/create_order', methods=['POST', 'OPTIONS'])
-def create_order():
-    if request.method == 'OPTIONS':
-        return '', 204
-    
-    # Reload env variables from .env
-    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
-    load_dotenv(dotenv_path=env_path, override=True)
-    
-    key_id = os.getenv('RAZORPAY_KEY_ID', '').strip()
-    key_secret = os.getenv('RAZORPAY_KEY_SECRET', '').strip()
-
-    data = request.get_json() or {}
-    amount_rupees = data.get('amount_rupees', 25)
-    user_id = data.get('user_id', 'USR001')
-    water_liters = data.get('water_liters', 5)
-    
-    # Check if official Razorpay test key is configured
-    is_real_key = bool(key_id and key_secret and key_id.startswith('rzp_test_'))
-    
-    if is_real_key:
-        try:
-            import razorpay
-            client = razorpay.Client(auth=(key_id, key_secret))
-            order_data = {
-                'amount': int(amount_rupees * 100), # in paise
-                'currency': 'INR',
-                'receipt': f"receipt_{int(datetime.now().timestamp())}",
-                'notes': {'user_id': user_id, 'water_liters': str(water_liters)}
-            }
-            rzp_order = client.order.create(data=order_data)
-            logger.info(f"💳 Official Razorpay order created: ID={rzp_order['id']}, Key={key_id}, Amount=₹{amount_rupees}")
-            return create_response(
-                True,
-                data={
-                    'id': rzp_order['id'],
-                    'amount': rzp_order['amount'],
-                    'currency': rzp_order['currency'],
-                    'key': key_id,
-                    'receipt': rzp_order['receipt'],
-                    'is_real_key': True
-                },
-                message="Official Razorpay order created successfully"
-            )
-        except Exception as e:
-            logger.error(f"Failed to create official Razorpay order: {e}", exc_info=True)
-            return create_response(
-                False,
-                message=f"Razorpay API Error: {str(e)}",
-                status_code=400
-            )
-
-    # Default fallback for placeholder/simulated keys
-    order_id = f"order_{datetime.now().strftime('%Y%m%d%H%M%S')}_{str(uuid.uuid4())[:6].upper()}"
-    receipt_id = f"receipt_{int(datetime.now().timestamp())}"
-    
-    logger.info(f"💳 Simulated Order created: ID={order_id}, Amount=₹{amount_rupees}, Liters={water_liters}")
-    
-    return create_response(
-        True,
-        data={
-            'id': order_id,
-            'amount': int(amount_rupees * 100), # paise
-            'currency': 'INR',
-            'key': RAZORPAY_KEY_ID,
-            'receipt': receipt_id,
-            'is_real_key': False,
-            'notes': {'user_id': user_id, 'water_liters': water_liters}
-        },
-        message="Simulated order created successfully"
-    )
-
-# ==================== ROUTE: VERIFY PAYMENT ====================
-@app.route('/api/verify_payment', methods=['POST', 'OPTIONS'])
-def verify_payment():
-    if request.method == 'OPTIONS':
-        return '', 204
-    
-    data = request.get_json() or {}
-    order_id = data.get('razorpay_order_id')
-    payment_id = data.get('razorpay_payment_id')
-    signature = data.get('razorpay_signature')
-    user_id = data.get('user_id', 'USR001')
-    station_id = data.get('station_id', 'STN-001')
-    quantity_liters = data.get('quantity_liters', 5)
-    amount_rupees = data.get('amount_rupees', 25)
-    
-    # Create transaction object
-    transaction = {
-        'id': f"TXN-{datetime.now().strftime('%Y%m%d%H%M%S')}",
-        'userId': user_id,
-        'userName': 'User',
-        'hostelBlock': 'Hostel Block A',
-        'amount': amount_rupees,
-        'waterLiters': quantity_liters,
-        'paymentStatus': 'Paid',
-        'dispensingStatus': 'Completed',
-        'paymentMethod': 'Razorpay',
-        'razorpayPaymentId': payment_id or f"pay_{uuid.uuid4().hex[:10]}",
-        'razorpayOrderId': order_id or f"order_{uuid.uuid4().hex[:10]}",
-        'stationId': station_id,
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    }
-    
-    if using_mongo:
-        u = db['users'].find_one({'id': user_id})
-        if u:
-            transaction['userName'] = u.get('name', 'User')
-            transaction['hostelBlock'] = u.get('hostelBlock', 'Hostel Block A')
-            transaction['rfid'] = u.get('rfid', '')
-            
-            # Atomically update user todayUsage and totalSpent in MongoDB
-            db['users'].update_one(
-                {'id': user_id},
-                {'$inc': {'todayUsage': float(quantity_liters), 'monthlyUsage': float(quantity_liters), 'totalSpent': float(amount_rupees)}}
-            )
-            
-        db['transactions'].insert_one(transaction)
-        logger.info(f"✅ Transaction logged to MongoDB 'transactions': ID={transaction['id']}, User={user_id}, Amount=₹{amount_rupees}")
-    else:
-        IN_MEMORY_DB['transactions'].insert(0, transaction)
-    
-    return create_response(
-        True,
-        data={
-            'verified': True,
-            'status': 'Authorized',
-            'payment_id': payment_id,
-            'order_id': order_id,
-            'dispensing_authorized': True,
-            'transaction': clean_mongo_doc(transaction)
-        },
-        message="Razorpay signature verified. Water dispensing authorized."
-    )
-
-# ==================== ROUTE: LOG USAGE ====================
-@app.route('/api/log_usage', methods=['POST', 'OPTIONS'])
-def log_usage():
-    if request.method == 'OPTIONS':
-        return '', 204
-    
-    data = request.get_json() or {}
-    user_id = data.get('user_id')
-    water_liters = data.get('water_liters', 0)
-    amount_rupees = data.get('amount_rupees', 0)
-    
-    if user_id:
-        if using_mongo:
-            db['users'].update_one(
-                {'id': user_id},
-                {'$inc': {'todayUsage': water_liters, 'monthlyUsage': water_liters, 'totalSpent': amount_rupees}}
-            )
-        else:
-            for u in IN_MEMORY_DB['users']:
-                if u['id'] == user_id:
-                    u['todayUsage'] += water_liters
-                    u['monthlyUsage'] += water_liters
-                    u['totalSpent'] += amount_rupees
-    
-    anomaly = check_anomaly(user_id, water_liters)
-    if anomaly['is_anomaly']:
-        alert = {
-            'id': f"ALT-{uuid.uuid4().hex[:6].upper()}",
-            'severity': 'Critical',
-            'title': 'Unusual Consumption Spike',
-            'description': f"User {user_id} exceeded 3-Sigma threshold with {water_liters} L.",
-            'timestamp': 'Just now',
-            'stationId': data.get('station_id', 'STN-001'),
-            'userId': user_id,
-            'status': 'Unresolved'
-        }
-        if using_mongo:
-            db['alerts'].insert_one(alert)
-        else:
-            IN_MEMORY_DB['alerts'].insert(0, alert)
-
-    return create_response(True, data={'logged': True}, message="Usage logged to database")
-
-# ==================== ROUTE: USERS CRUD ====================
-@app.route('/api/users', methods=['GET', 'POST', 'OPTIONS'])
-def handle_users():
-    if request.method == 'OPTIONS':
-        return '', 204
-    
-    if request.method == 'GET':
-        if using_mongo:
-            users_list = list(db['users'].find({}))
-        else:
-            users_list = IN_MEMORY_DB['users']
-        return create_response(True, data={'users': clean_mongo_doc(users_list)})
-    
-    elif request.method == 'POST':
-        data = request.get_json() or {}
-        new_user = {
-            'id': f"USR{str(uuid.uuid4())[:4].upper()}",
-            'name': data.get('name', 'New Student'),
-            'email': data.get('email', ''),
-            'hostelBlock': data.get('hostelBlock', 'Hostel Block A'),
-            'roomNo': data.get('roomNo', 'A-101'),
-            'rfid': data.get('rfid', '').upper(),
-            'balance': data.get('balance', 100),
-            'todayUsage': 0.0,
-            'monthlyUsage': 0.0,
-            'totalSpent': 0.0,
-            'status': 'Active',
-            'avgDailyUsage': 2.5,
-            'avatar': f"https://api.dicebear.com/7.x/avataaars/svg?seed={data.get('name', 'User')}"
-        }
-        if using_mongo:
-            db['users'].insert_one(new_user)
-        else:
-            IN_MEMORY_DB['users'].insert(0, new_user)
-        
-        return create_response(True, data={'user': clean_mongo_doc(new_user)}, message="User created in MongoDB")
-
-@app.route('/api/users/<user_id>', methods=['GET', 'PUT', 'DELETE'])
-def handle_single_user(user_id):
-    if request.method == 'GET':
-        if using_mongo:
-            u = db['users'].find_one({'id': user_id})
-        else:
-            u = next((x for x in IN_MEMORY_DB['users'] if x['id'] == user_id), None)
-        return create_response(True, data={'user': clean_mongo_doc(u)})
-
-@app.route('/api/users/<user_id>/topup', methods=['POST'])
-def topup_user_balance(user_id):
-    data = request.get_json() or {}
-    amount = data.get('amount', 100)
-    
-    if using_mongo:
-        db['users'].update_one({'id': user_id}, {'$inc': {'balance': amount}})
-    else:
-        for u in IN_MEMORY_DB['users']:
-            if u['id'] == user_id:
-                u['balance'] += amount
-                
-    return create_response(True, message=f"Added ₹{amount} to balance")
-
-# ==================== ROUTE: TRANSACTIONS ====================
-@app.route('/api/transactions', methods=['GET'])
-def get_transactions():
-    if using_mongo:
-        txns = list(db['transactions'].find({}))
-    else:
-        txns = IN_MEMORY_DB['transactions']
-    return create_response(True, data={'transactions': clean_mongo_doc(txns)})
-
-# ==================== ROUTE: STATIONS ====================
-@app.route('/api/stations', methods=['GET'])
-def get_stations():
-    if using_mongo:
-        stns = list(db['stations'].find({}))
-    else:
-        stns = IN_MEMORY_DB['stations']
-    return create_response(True, data={'stations': clean_mongo_doc(stns)})
-
-@app.route('/api/stations/<station_id>/telemetry', methods=['POST', 'OPTIONS'])
-def handle_station_telemetry(station_id):
-    if request.method == 'OPTIONS':
-        return '', 204
-    data = request.get_json() or {}
-    logger.info(f"📡 Telemetry from {station_id}: event={data.get('event')}, flow={data.get('flow_rate_lpm')} L/min")
-    
-    update_fields = {'lastSync': 0}
-    if 'flow_rate_lpm' in data:
-        update_fields['flowRate'] = data['flow_rate_lpm']
-    if 'solenoid_valve' in data:
-        update_fields['solenoidValve'] = 'Open' if data['solenoid_valve'] == 'OPEN' else 'Closed'
-        
-    if using_mongo:
-        db['stations'].update_one({'id': station_id}, {'$set': update_fields})
-    else:
-        for s in IN_MEMORY_DB['stations']:
-            if s['id'] == station_id:
-                s.update(update_fields)
-                
-    return create_response(True, data={'telemetry_logged': True}, message="Station telemetry updated")
+    store.replace_all("users", demo_data.make_users())
+    store.replace_all("stations", demo_data.make_stations())
+    store.replace_all("transactions", demo_data.make_transactions())
+    store.replace_all("alerts", demo_data.make_alerts())
+    store.replace_all("anomalies", demo_data.make_anomalies())
+    store.replace_all("settings", demo_data.make_settings())
+    store.replace_all("orders", [])
+    store.replace_all("meta", [{"id": "seed", "version": demo_data.SEED_VERSION}])
+    log.info("🌱 Demo data loaded (seed version %s) into %s", demo_data.SEED_VERSION, store.name)
 
 
-# ==================== ROUTE: ALERTS ====================
-@app.route('/api/alerts', methods=['GET', 'POST', 'OPTIONS'])
-def handle_alerts():
-    if request.method == 'OPTIONS':
-        return '', 204
+# ==================== RESPONSE HELPERS ====================
 
-    if request.method == 'GET':
-        if using_mongo:
-            alerts = list(db['alerts'].find({}))
-            anomalies = list(db['anomalies'].find({}))
-        else:
-            alerts = IN_MEMORY_DB['alerts']
-            anomalies = IN_MEMORY_DB['anomalies']
-        return create_response(True, data={'alerts': clean_mongo_doc(alerts), 'anomalies': clean_mongo_doc(anomalies)})
-
-    elif request.method == 'POST':
-        data = request.get_json() or {}
-        alert = {
-            'id': f"ALT-{uuid.uuid4().hex[:6].upper()}",
-            'severity': data.get('severity', 'Critical'),
-            'title': data.get('title', 'System Warning'),
-            'description': data.get('reason') or data.get('description', 'Alert triggered'),
-            'timestamp': 'Just now',
-            'stationId': data.get('station_id', 'STN-001'),
-            'userId': data.get('user_id', 'USR001'),
-            'status': 'Unresolved'
-        }
-        if using_mongo:
-            db['alerts'].insert_one(alert)
-        else:
-            IN_MEMORY_DB['alerts'].insert(0, alert)
-
-        logger.info(f"⚠️ Alert logged: {alert['title']} from station {alert['stationId']}")
-        return create_response(True, data={'alert': clean_mongo_doc(alert)}, message="Alert logged to database")
+def ok(data=None, message=""):
+    body = {"success": True, "message": message, "timestamp": datetime.now().isoformat()}
+    body.update(data or {})
+    return jsonify(body), 200
 
 
-# ==================== HEALTH CHECK ====================
-@app.route('/api/health', methods=['GET'])
+def fail(message, status=400):
+    return jsonify({"success": False, "message": message, "timestamp": datetime.now().isoformat()}), status
+
+
+@app.errorhandler(ServiceError)
+def handle_service_error(error):
+    return fail(str(error), 400)
+
+
+def body():
+    return request.get_json(silent=True) or {}
+
+
+# =====================================================================
+#   HEALTH
+# =====================================================================
+
+@app.route("/api/health", methods=["GET"])
 def health_check():
-    user_count = db['users'].count_documents({}) if using_mongo else len(IN_MEMORY_DB['users'])
-    station_count = db['stations'].count_documents({}) if using_mongo else len(IN_MEMORY_DB['stations'])
-    return create_response(
-        True,
-        data={
-            'status': 'HEALTHY',
-            'database': 'MongoDB (aquaallot)' if using_mongo else 'In-Memory',
-            'usersCount': user_count,
-            'stationsCount': station_count,
-            'timestamp': datetime.now().isoformat()
-        },
-        message="AquaAllot API System Operational"
-    )
+    return ok({
+        "status": "HEALTHY",
+        "database": store.name,
+        "usersCount": store.count("users"),
+        "stationsCount": store.count("stations"),
+        "mqtt": bridge.snapshot()["mqtt"],
+        "razorpay": "test keys loaded" if payments.has_real_keys() else "no keys (simulated payments)",
+    }, "AquaAllot API is running")
 
-if __name__ == '__main__':
-    logger.info("╔════════════════════════════════════════════════════╗")
-    logger.info("║   AquaAllot Flask Backend API - MongoDB Powered    ║")
-    logger.info("║   MongoDB Connection: localhost:27017              ║")
-    logger.info("║   API Base URL: http://localhost:5000/api          ║")
-    logger.info("╚════════════════════════════════════════════════════╝\n")
-    
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+
+# =====================================================================
+#   LIVE STATION  (Wokwi ESP32 over MQTT)
+# =====================================================================
+
+@app.route("/api/live", methods=["GET"])
+def live_state():
+    """Everything the Live Station page needs: MQTT status, station state and the event log."""
+    return ok(bridge.snapshot())
+
+
+@app.route("/api/stations/<station_id>/command", methods=["POST"])
+def station_command(station_id):
+    """Dashboard buttons → ESP32.  action = tap_card | start_order | stop | reset"""
+    params = body()
+    action = params.pop("action", None)
+    order = bridge.command(station_id, action, **params)
+    return ok({"order": order}, f"'{action}' sent to {station_id}")
+
+
+@app.route("/api/orders/<order_id>", methods=["GET"])
+def get_order(order_id):
+    return ok({"order": services.get_order(store, order_id)})
+
+
+@app.route("/api/orders/<order_id>/checkout", methods=["POST"])
+def checkout_order(order_id):
+    """Create the Razorpay order for a station order (opens the Razorpay popup on the dashboard)."""
+    order = services.get_order(store, order_id)
+    if order["status"] != "pending":
+        raise ServiceError(f"Order is already {order['status']}")
+    try:
+        rzp = payments.create_razorpay_order(order["amount"], notes={"aquaallot_order": order_id, "user_id": order["userId"]})
+    except Exception as error:
+        return fail(f"Razorpay: {error}", 502)
+    store.update("orders", {"id": order_id}, set={"razorpayOrderId": rzp["id"]})
+    user = store.find_one("users", id=order["userId"]) or {}
+    return ok({"razorpay": rzp, "order": order, "user": {"name": user.get("name"), "email": user.get("email")}})
+
+
+@app.route("/api/orders/<order_id>/confirm", methods=["POST"])
+def confirm_order_payment(order_id):
+    """
+    Called after the Razorpay popup succeeds (or for a demo 'test payment').
+    Verifies the signature, marks the order paid and tells the ESP32 to open the valve.
+    """
+    data = body()
+    if data.get("test_mode"):
+        method, payment_id, rzp_order_id = "Test payment", None, None
+    else:
+        rzp_order_id = data.get("razorpay_order_id")
+        payment_id = data.get("razorpay_payment_id")
+        if not payments.signature_is_valid(rzp_order_id, payment_id, data.get("razorpay_signature")):
+            return fail("Razorpay signature check failed", 400)
+        method = "Razorpay"
+
+    order, user = services.pay_order(store, order_id, method, payment_id=payment_id, razorpay_order_id=rzp_order_id)
+    bridge.payment_confirmed(order, user)
+    return ok({"order": order}, "Payment verified. Valve opening at the station.")
+
+
+# =====================================================================
+#   RFID + KIOSK PAYMENT FLOW  (used by the Kiosk and Dispensing pages)
+# =====================================================================
+
+@app.route("/api/verify_rfid", methods=["POST"])
+def verify_rfid():
+    uid = body().get("rfid_uid", "")
+    log.info("🔐 RFID check from dashboard: %s", uid)
+    try:
+        user = services.check_card(store, uid)
+    except ServiceError as error:
+        return fail(str(error), 404)
+    return ok({"authorized": True, "user": user}, "RFID authentication successful")
+
+
+@app.route("/api/create_order", methods=["POST"])
+def create_order():
+    data = body()
+    try:
+        rzp = payments.create_razorpay_order(
+            data.get("amount_rupees", 25),
+            notes={"user_id": str(data.get("user_id", "")), "water_liters": str(data.get("water_liters", ""))},
+        )
+    except Exception as error:
+        return fail(f"Razorpay: {error}", 502)
+    return ok(rzp, "Order created")
+
+
+@app.route("/api/verify_payment", methods=["POST"])
+def verify_payment():
+    """Kiosk/Dispensing pages: saves the transaction. (Usage is added later by /api/log_usage.)"""
+    data = body()
+    user = store.find_one("users", id=data.get("user_id")) or {}
+    signature_ok = payments.signature_is_valid(
+        data.get("razorpay_order_id"), data.get("razorpay_payment_id"), data.get("razorpay_signature")
+    )
+    amount = float(data.get("amount_rupees", 0))
+    transaction = {
+        "id": services.new_id("TXN"),
+        "userId": user.get("id", data.get("user_id")), "userName": user.get("name", "User"),
+        "hostelBlock": user.get("hostelBlock"), "rfid": user.get("rfid"),
+        "amount": amount, "waterLiters": float(data.get("quantity_liters", 0)),
+        "paymentStatus": "Paid", "dispensingStatus": "Completed",
+        "paymentMethod": "Razorpay" if signature_ok else "Razorpay (test)",
+        "razorpayPaymentId": data.get("razorpay_payment_id"), "razorpayOrderId": data.get("razorpay_order_id"),
+        "stationId": data.get("station_id", demo_data.WIRED_STATION_ID), "timestamp": services.now_text(),
+    }
+    store.insert("transactions", transaction)
+    if user:
+        store.update("users", {"id": user["id"]}, inc={"totalSpent": amount})
+    return ok({
+        "verified": True, "signature_verified": signature_ok, "status": "Authorized",
+        "payment_id": data.get("razorpay_payment_id"), "order_id": data.get("razorpay_order_id"),
+        "dispensing_authorized": True, "transaction": transaction,
+    }, "Payment saved. Water dispensing authorized.")
+
+
+@app.route("/api/log_usage", methods=["POST"])
+def log_usage():
+    data = body()
+    liters = float(data.get("water_liters", 0))
+    station_id = data.get("station_id", demo_data.WIRED_STATION_ID)
+    user = store.update("users", {"id": data.get("user_id")}, inc={"todayUsage": liters, "monthlyUsage": liters})
+    store.update("stations", {"id": station_id}, inc={"todayUsage": liters})
+    anomaly = services.detect_usage_anomaly(store, user, station_id)
+    return ok({"logged": True, "anomaly": anomaly}, "Usage logged")
+
+
+# =====================================================================
+#   USERS
+# =====================================================================
+
+@app.route("/api/users", methods=["GET"])
+def list_users():
+    return ok({"users": store.all("users")})
+
+
+@app.route("/api/users", methods=["POST"])
+def create_user():
+    data = body()
+    card = services.pretty_card(data.get("rfid"))
+    if not data.get("name") or not card:
+        return fail("Name and RFID card UID are required")
+    owner = services.find_user_by_card(store, card)
+    if owner:
+        return fail(f"Card {card} already belongs to {owner['name']}", 409)
+
+    user = {
+        "id": services.new_id("USR"), "name": data["name"], "email": data.get("email", ""),
+        "hostelBlock": data.get("hostelBlock", "Hostel Block A"), "roomNo": data.get("roomNo", ""),
+        "rfid": card, "rfidCard": data.get("rfidCard", "Registered from dashboard"),
+        "balance": float(data.get("balance", 100)), "todayUsage": 0.0, "monthlyUsage": 0.0, "totalSpent": 0.0,
+        "avgDailyUsage": float(data.get("avgDailyUsage", 2.5)), "usageStdDev": 0.6, "status": "Active",
+        "avatar": demo_data.avatar(data["name"]),
+    }
+    store.insert("users", user)
+    log.info("👤 New user %s with card %s", user["name"], card)
+    return ok({"user": user}, f"{user['name']} registered with card {card}")
+
+
+@app.route("/api/users/<user_id>", methods=["GET"])
+def get_user(user_id):
+    user = store.find_one("users", id=user_id)
+    return ok({"user": user}) if user else fail("User not found", 404)
+
+
+@app.route("/api/users/<user_id>", methods=["PUT"])
+def update_user(user_id):
+    allowed = ("name", "email", "hostelBlock", "roomNo", "status", "avgDailyUsage")
+    changes = {key: value for key, value in body().items() if key in allowed}
+    user = store.update("users", {"id": user_id}, set=changes)
+    return ok({"user": user}) if user else fail("User not found", 404)
+
+
+@app.route("/api/users/<user_id>/topup", methods=["POST"])
+def topup_user_balance(user_id):
+    amount = float(body().get("amount", 100))
+    if amount <= 0:
+        return fail("Amount must be positive")
+    user = store.update("users", {"id": user_id}, inc={"balance": amount})
+    return ok({"user": user}, f"Added ₹{amount:.0f} to wallet") if user else fail("User not found", 404)
+
+
+# =====================================================================
+#   TRANSACTIONS, STATIONS, ALERTS, SETTINGS
+# =====================================================================
+
+@app.route("/api/transactions", methods=["GET"])
+def get_transactions():
+    return ok({"transactions": store.all("transactions")})
+
+
+@app.route("/api/stations", methods=["GET"])
+def get_stations():
+    stations = [{**s, **bridge.station_overrides(s["id"])} for s in store.all("stations")]
+    return ok({"stations": stations})
+
+
+@app.route("/api/stations/<station_id>", methods=["GET"])
+def get_station(station_id):
+    station = store.find_one("stations", id=station_id)
+    if not station:
+        return fail("Station not found", 404)
+    return ok({"station": {**station, **bridge.station_overrides(station_id)}})
+
+
+@app.route("/api/stations/<station_id>/telemetry", methods=["POST"])
+def station_telemetry(station_id):
+    """Optional HTTP telemetry (the Wokwi station uses MQTT instead)."""
+    data = body()
+    changes = {}
+    if "flow_rate_lpm" in data:
+        changes["flowRate"] = data["flow_rate_lpm"]
+    if "solenoid_valve" in data:
+        changes["solenoidValve"] = "Open" if str(data["solenoid_valve"]).upper() == "OPEN" else "Closed"
+    store.update("stations", {"id": station_id}, set=changes)
+    return ok({"telemetry_logged": True})
+
+
+@app.route("/api/alerts", methods=["GET"])
+def get_alerts():
+    return ok({"alerts": store.all("alerts"), "anomalies": store.all("anomalies")})
+
+
+@app.route("/api/alerts", methods=["POST"])
+def create_alert():
+    data = body()
+    alert = services.raise_alert(
+        store, data.get("severity", "Critical"), data.get("title", "System Warning"),
+        data.get("reason") or data.get("description", "Alert triggered"),
+        data.get("station_id", demo_data.WIRED_STATION_ID), data.get("user_id"),
+    )
+    return ok({"alert": alert}, "Alert saved")
+
+
+@app.route("/api/alerts/<alert_id>/resolve", methods=["POST"])
+def resolve_alert(alert_id):
+    alert = store.update("alerts", {"id": alert_id}, set={"status": "Resolved"})
+    return ok({"alert": alert}, "Alert resolved") if alert else fail("Alert not found", 404)
+
+
+@app.route("/api/settings", methods=["GET"])
+def get_settings():
+    return ok({"settings": store.find_one("settings", id="global") or {}})
+
+
+@app.route("/api/settings", methods=["PUT"])
+def update_settings():
+    price = float(body().get("waterPricePerLiter", 0))
+    if price <= 0:
+        return fail("Price must be positive")
+    settings = store.update("settings", {"id": "global"}, set={"waterPricePerLiter": price})
+    return ok({"settings": settings}, f"Water price set to ₹{price:g}/L")
+
+
+@app.route("/api/admin/reset_demo", methods=["POST"])
+def reset_demo():
+    seed_demo_data(force=True)
+    return ok(message="Demo data reset")
+
+
+# =====================================================================
+#   START
+# =====================================================================
+
+seed_demo_data()
+bridge.start()
+
+if __name__ == "__main__":
+    log.info("╔══════════════════════════════════════════════════════════╗")
+    log.info("║  %-56s║", f"AquaAllot backend  →  http://localhost:{PORT}/api/health")
+    log.info("║  Database : %-45s║", store.name)
+    log.info("║  MQTT     : %-45s║", f"{MQTT_BROKER}:{MQTT_PORT}")
+    log.info("║  Topic    : %-45s║", f"{MQTT_TOPIC_ROOT}/<station>/up|down")
+    log.info("║  Razorpay : %-45s║", "test keys loaded" if payments.has_real_keys() else "no keys → simulated")
+    log.info("╚══════════════════════════════════════════════════════════╝")
+    app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)

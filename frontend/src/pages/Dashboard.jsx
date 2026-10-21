@@ -25,6 +25,7 @@ import {
 import { useApp } from '../context/AppContext';
 import { initialHostels } from '../services/mockData';
 import { Badge } from '../components/common/Badge';
+import { LiveStationSummary } from '../components/live/LiveStationSummary';
 
 export const Dashboard = () => {
   const { kpis, stations, transactions, waterUsage, revenueData, alerts, users } = useApp();
@@ -77,6 +78,9 @@ export const Dashboard = () => {
           <span>New Water Purchase</span>
         </Link>
       </div>
+
+      {/* Live Wokwi station (click to open the Live Station page) */}
+      <LiveStationSummary />
 
       {/* 5 KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -235,7 +239,10 @@ export const Dashboard = () => {
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <h4 className="text-sm font-bold text-slate-900">{stn.name}</h4>
+                  <h4 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                    {stn.name}
+                    {stn.isLive && <span className="px-1.5 py-0.5 rounded-md bg-cyan-500 text-white text-[9px] font-extrabold">LIVE</span>}
+                  </h4>
                   <p className="text-[11px] text-slate-500">{stn.location}</p>
                 </div>
                 <Badge
@@ -260,7 +267,7 @@ export const Dashboard = () => {
                 </div>
                 <div>
                   <span className="text-slate-400 font-medium block">Last Sync</span>
-                  <span className="font-bold text-slate-800">{stn.lastSync} sec ago</span>
+                  <span className="font-bold text-slate-800">{stn.lastSync != null ? `${stn.lastSync} sec ago` : '—'}</span>
                 </div>
               </div>
 
