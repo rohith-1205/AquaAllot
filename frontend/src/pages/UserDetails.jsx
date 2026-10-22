@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   Droplets,
-  ShieldAlert,
+  Gauge,
   Building2
 } from 'lucide-react';
 import {
@@ -19,20 +19,19 @@ import { useApp } from '../context/AppContext';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
 import { api } from '../services/api';
+import { DailyLimitEditor } from '../components/users/DailyLimitEditor';
 import { formatDateTime, rupees } from '../utils/format';
 
 export const UserDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { users, transactions, anomalies, analytics } = useApp();
+  const { users, transactions, analytics } = useApp();
   const [weeklyUsage, setWeeklyUsage] = useState([]);   // real litres per day from the backend
 
   const user = users.find((u) => u.id === id) || users[0];
   const userTransactions = transactions.filter((t) => t.userId === user.id);
-  const userAnomalies = anomalies.filter((a) => a.userId === user.id);
-
-  // Normal usage / 3-sigma limit / daily quota, as calculated by the backend
-  const profile = analytics.overuse?.find((row) => row.userId === user.id);
+  // Today's usage vs this student's daily limit, as calculated by the backend
+  const limit = analytics.overuse?.find((row) => row.userId === user.id);
 
   useEffect(() => {
     api
@@ -100,8 +99,8 @@ export const UserDetails = () => {
         <div className="p-5 bg-white rounded-2xl border border-slate-100 shadow-sm">
           <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Water Used Today</span>
           <h3 className="text-2xl font-black text-sky-600 font-['Outfit'] mt-2">{user.todayUsage} L</h3>
-          <p className={`text-xs mt-1 font-semibold ${profile?.aboveNormal || profile?.overQuota ? 'text-rose-600' : 'text-slate-500'}`}>
-            Limit {profile?.limit ?? '—'} L · quota {profile?.quota ?? user.dailyQuota} L
+          <p className={`text-xs mt-1 font-semibold ${limit?.reachedLimit || limit?.triedOverLimit ? 'text-rose-600' : 'text-slate-500'}`}>
+            {limit ? `${limit.left} L left of ${limit.limit} L today` : '—'}
           </p>
         </div>
 
@@ -117,12 +116,11 @@ export const UserDetails = () => {
           <p className="text-xs text-slate-500 mt-1">Paid with Razorpay (after refunds)</p>
         </div>
 
-        <div className="p-5 bg-white rounded-2xl border border-slate-100 shadow-sm">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Normal Daily Use</span>
-          <h3 className="text-2xl font-black text-slate-900 font-['Outfit'] mt-2">{profile?.mean ?? user.avgDailyUsage} L</h3>
-          <p className="text-xs text-slate-500 mt-1">
-            {profile?.learned ? `Learned from ${profile.historyDays} days of history` : 'Starting value (not enough history yet)'}
-          </p>
+        <div className="p-5 rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-fuchsia-50 shadow-sm space-y-2">
+          <span className="text-xs font-bold text-violet-700 uppercase tracking-wider flex items-center gap-1.5">
+            <Gauge className="w-4 h-4" /> Daily Water Limit
+          </span>
+          <DailyLimitEditor user={user} />
         </div>
       </div>
 
@@ -147,30 +145,6 @@ export const UserDetails = () => {
           </ResponsiveContainer>
         </div>
       </div>
-
-      {/* 3-Sigma Anomaly Section if applicable */}
-      {userAnomalies.length > 0 && (
-        <div className="p-6 bg-rose-50 border border-rose-200/80 rounded-3xl space-y-3">
-          <div className="flex items-center gap-2 text-rose-700 font-bold text-sm">
-            <ShieldAlert className="w-5 h-5" />
-            <span>3-Sigma Anomaly Detected for {user.name}</span>
-          </div>
-          {userAnomalies.map((anom) => (
-            <div key={anom.id} className="p-4 bg-white rounded-2xl border border-rose-200 text-xs space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-slate-900">{anom.reason}</span>
-                <Badge variant="danger">{anom.deviation}</Badge>
-              </div>
-              <div className="grid grid-cols-4 gap-2 pt-2 border-t border-slate-100 text-slate-600">
-                <div>Mean: <strong className="text-slate-900">{anom.mean} L</strong></div>
-                <div>Std Dev: <strong className="text-slate-900">{anom.stdDev} L</strong></div>
-                <div>Upper Cap: <strong className="text-slate-900">{anom.upperThreshold} L</strong></div>
-                <div>Observed: <strong className="text-rose-600 font-bold">{anom.observed} L</strong></div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Student Transaction & Payments History */}
       <div className="p-6 bg-white rounded-3xl border border-slate-100 shadow-sm space-y-4">

@@ -150,36 +150,53 @@ class PaymentsAndRefunds(unittest.TestCase):
         self.assertTrue(payments.refund_payment("sim_PAY-1", 5).startswith("sim_rfnd_"))
 
 
-class OverUsage(unittest.TestCase):
+class DailyLimit(unittest.TestCase):
     def setUp(self):
         self.store = fresh_store()
-        self.sanjay = self.store.find_one("users", id="USR003")
+        self.sanjay = self.store.find_one("users", id="USR003")     # personal limit 3 L
+        self.rohith = self.store.find_one("users", id="USR001")     # default limit 10 L
 
-    def test_baseline_is_learned_from_history(self):
-        profile = services.usage_profile(self.store, self.sanjay)
-        self.assertTrue(profile["learned"])
-        self.assertAlmostEqual(profile["mean"], 1.5, delta=0.5)
+    def test_personal_limit_beats_default(self):
+        self.assertEqual(services.daily_limit(self.store, self.sanjay), 3.0)
+        self.assertEqual(services.daily_limit(self.store, self.rohith), 10.0)
 
-    def test_big_order_raises_one_alert_per_day(self):
-        order = services.create_order(self.store, self.sanjay, 5, STATION, source="esp32")
-        self.assertEqual(order["warning"], "Above normal use")
-        services.create_order(self.store, self.sanjay, 5, STATION, source="esp32")
-        spikes = [a for a in self.store.all("alerts") if a["title"] == "Unusual Consumption Spike"]
-        self.assertEqual(len(spikes), 1)
-        self.assertEqual(len(self.store.all("anomalies")), 1)
+    def test_default_limit_comes_from_settings(self):
+        self.store.update("settings", {"id": "global"}, set={"dailyLimitLiters": 4})
+        self.assertEqual(services.daily_limit(self.store, self.rohith), 4.0)
+        self.assertEqual(services.daily_limit(self.store, self.sanjay), 3.0)
+
+    def test_order_within_limit_has_no_warning(self):
+        self.assertEqual(services.create_order(self.store, self.sanjay, 2, STATION, source="esp32")["warning"], "")
+
+    def test_order_above_limit_is_refused_with_one_alert(self):
+        for _ in range(2):
+            with self.assertRaises(services.ServiceError) as ctx:
+                services.create_order(self.store, self.sanjay, 5, STATION, source="esp32")
+        self.assertEqual(str(ctx.exception), "Only 3 L left today")
+        alerts = [a for a in self.store.all("alerts") if a["title"] == "Daily Limit Exceeded"]
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(self.store.find("orders"), [])
         self.assertEqual(self.store.find_one("users", id="USR003")["status"], "Warning")
 
-    def test_normal_order_has_no_warning(self):
-        rohith = self.store.find_one("users", id="USR001")
-        self.assertEqual(services.create_order(self.store, rohith, 1, STATION, source="esp32")["warning"], "")
+    def test_limit_reached(self):
+        self.store.update("users", {"id": "USR003"}, set={"todayUsage": 3.0})
+        sanjay = self.store.find_one("users", id="USR003")
+        with self.assertRaises(services.ServiceError) as ctx:
+            services.create_order(self.store, sanjay, 1, STATION, source="esp32")
+        self.assertEqual(str(ctx.exception), "Daily limit reached")
 
-    def test_daily_quota_alert(self):
-        rohith = self.store.find_one("users", id="USR001")
-        self.store.update("users", {"id": "USR001"}, set={"todayUsage": 9.0})
-        rohith = self.store.find_one("users", id="USR001")
-        services.create_order(self.store, rohith, 2, STATION, source="esp32")
-        titles = [a["title"] for a in self.store.all("alerts")]
-        self.assertIn("Daily Quota Exceeded", titles)
+    def test_alert_mode_allows_the_order(self):
+        self.store.update("settings", {"id": "global"}, set={"limitAction": "alert"})
+        order = services.create_order(self.store, self.sanjay, 5, STATION, source="esp32")
+        self.assertEqual(order["warning"], "Over daily limit")
+        self.assertIn("Daily Limit Exceeded", [a["title"] for a in self.store.all("alerts")])
+
+    def test_analytics_shows_limits(self):
+        self.store.update("users", {"id": "USR003"}, set={"todayUsage": 3.0})
+        rows = {row["userId"]: row for row in services.analytics(self.store)["overuse"]}
+        self.assertEqual((rows["USR003"]["limit"], rows["USR003"]["customLimit"], rows["USR003"]["left"]), (3.0, True, 0.0))
+        self.assertTrue(rows["USR003"]["reachedLimit"])
+        self.assertEqual((rows["USR001"]["limit"], rows["USR001"]["customLimit"]), (10.0, False))
 
     def test_new_day_resets_today_usage(self):
         self.store.update("users", {"id": "USR003"}, set={"todayUsage": 6.0, "status": "Warning"})

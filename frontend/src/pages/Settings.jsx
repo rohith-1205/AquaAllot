@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
-import { CreditCard, Shield, Radio, RotateCcw, Droplets, Save } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { CreditCard, Shield, Radio, RotateCcw, Droplets, Save, Ban, Bell, Users } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Button } from '../components/common/Button';
 
@@ -17,20 +18,22 @@ const Card = ({ icon: Icon, color, title, children }) => (
 export const Settings = () => {
   const { settings, saveSettings, mqttStatus, resetDemoData } = useApp();
   const [price, setPrice] = useState(settings.waterPricePerLiter);
-  const [quota, setQuota] = useState(settings.dailyQuotaLiters);
+  const [limit, setLimit] = useState(settings.dailyLimitLiters);
+  const [action, setAction] = useState(settings.limitAction);
 
   // show the backend's values once they are loaded
   useEffect(() => {
     setPrice(settings.waterPricePerLiter);
-    setQuota(settings.dailyQuotaLiters);
-  }, [settings.waterPricePerLiter, settings.dailyQuotaLiters]);
+    setLimit(settings.dailyLimitLiters);
+    setAction(settings.limitAction);
+  }, [settings.waterPricePerLiter, settings.dailyLimitLiters, settings.limitAction]);
 
   // Saved in the backend, so the Wokwi station and every page use the new values
   const handleSave = async (e) => {
     e.preventDefault();
     try {
-      await saveSettings({ waterPricePerLiter: Number(price), dailyQuotaLiters: Number(quota) });
-      toast.success(`Saved! ₹${price}/L, daily quota ${quota} L per student.`);
+      await saveSettings({ waterPricePerLiter: Number(price), dailyLimitLiters: Number(limit), limitAction: action });
+      toast.success(`Saved! ₹${price}/L, default limit ${limit} L per student per day.`);
     } catch (err) {
       toast.error(err.message);
     }
@@ -69,17 +72,39 @@ export const Settings = () => {
           </div>
         </Card>
 
-        <Card icon={Droplets} color="text-sky-600" title="Daily water allotment">
+        <Card icon={Droplets} color="text-sky-600" title="Daily water limit">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Quota per student (litres / day)</label>
-              <input type="number" min="1" step="1" value={quota} onChange={(e) => setQuota(e.target.value)} className={input} />
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Default limit (litres per student per day)</label>
+              <input type="number" min="0.5" step="0.5" value={limit} onChange={(e) => setLimit(e.target.value)} className={input} />
+              <p className="text-[11px] text-slate-500 mt-1.5">
+                <Users className="w-3.5 h-3.5 text-violet-500 inline mr-1 -mt-0.5" />
+                Used by every student without a personal limit. Set personal limits on the{' '}
+                <Link to="/users" className="font-bold text-violet-600 hover:underline">Users page</Link>.
+              </p>
             </div>
-            <p className="text-xs text-slate-500 self-end">
-              Orders above the quota – or above a student's own normal limit (average + 3σ) – are still dispensed, but the admin gets
-              one alert per student per day on the Dashboard and Alerts pages.
-            </p>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">When an order goes over the limit</label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { key: 'block', icon: Ban, title: 'Refuse the order', note: 'OLED shows litres left', on: 'border-rose-400 bg-rose-50 text-rose-700' },
+                  { key: 'alert', icon: Bell, title: 'Allow + alert', note: 'water flows, admin alerted', on: 'border-amber-400 bg-amber-50 text-amber-700' }
+                ].map((opt) => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setAction(opt.key)}
+                    className={`p-3 rounded-xl border-2 text-left cursor-pointer transition-colors ${action === opt.key ? opt.on : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+                  >
+                    <opt.icon className="w-4 h-4 mb-1" />
+                    <span className="block text-xs font-bold">{opt.title}</span>
+                    <span className="block text-[10px]">{opt.note}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
+          <p className="text-xs text-slate-500">Either way the admin gets one “Daily Limit Exceeded” alert per student per day. Usage resets at midnight.</p>
         </Card>
 
         <Button type="submit" size="lg" icon={Save} className="w-full py-3">

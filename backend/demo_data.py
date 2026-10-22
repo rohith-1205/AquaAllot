@@ -8,13 +8,13 @@ card you tap in the simulator does something useful in the demo:
     ------------   --------------------   -----------------------------------------
     Blue card      01:02:03:04            Rohith       - normal purchase, pay with Razorpay
     Green card     11:22:33:44            Deepankishor - press PAY in Wokwi → Razorpay opens on the dashboard
-    Yellow card    55:66:77:88            Sanjay       - low daily average, 5 L = over-usage alert
+    Yellow card    55:66:77:88            Sanjay       - personal limit 3 L/day, 5 L is refused
     Key fob        C0:FF:EE:99            Karthik      - suspended account, access denied
     Red card       AA:BB:CC:DD            (not registered)  -> "Unknown card"
     NFC tag        04:11:22:33:44:55:66   (not registered)  -> register it live from Users page
 
 A 30-day purchase history is generated for every student (same numbers on
-every start), so the charts and the usage baselines come from real stored
+every start), so the charts come from real stored
 transactions instead of hard-coded chart values.
 
 Change these values to change the demo. Restart the backend (or use
@@ -26,10 +26,11 @@ from datetime import datetime, timedelta
 
 # Bump this number whenever the demo data changes, so an old MongoDB
 # database gets re-seeded automatically on the next start.
-SEED_VERSION = 5
+SEED_VERSION = 6
 
 WATER_PRICE_PER_LITER = 5          # ₹ per litre
-DAILY_QUOTA_LITERS = 10            # normal allotment per student per day
+DAILY_LIMIT_LITERS = 10            # default daily limit per student (Settings page)
+LIMIT_ACTION = "block"             # 'block' = refuse orders above the limit, 'alert' = only alert the admin
 WIRED_STATION_ID = "STN-001"        # the station that the Wokwi ESP32 drives
 HISTORY_DAYS = 30
 
@@ -43,28 +44,27 @@ def avatar(seed):
     return f"https://api.dicebear.com/7.x/avataaars/svg?seed={seed}"
 
 
-# (id, name, email-name, block, room, card, card label, normal L/day, spread, status, home station)
+# (id, name, email-name, block, room, card, card label, typical L/day, spread, status, home station, personal limit)
+# typical L/day + spread only shape the generated history; personal limit None = default limit
 STUDENTS = [
-    ("USR001", "Rohith", "rohith", "Hostel Block A", "A-204", "01:02:03:04", "Wokwi Blue card", 3.0, 0.8, "Active", WIRED_STATION_ID),
-    ("USR002", "Deepankishor", "deepankishor", "Hostel Block B", "B-112", "11:22:33:44", "Wokwi Green card", 2.6, 0.7, "Active", WIRED_STATION_ID),
-    ("USR003", "Sanjay", "sanjay", "Hostel Block A", "A-305", "55:66:77:88", "Wokwi Yellow card", 1.5, 0.5, "Active", WIRED_STATION_ID),
-    ("USR004", "Karthik N", "karthik", "PG Block C", "C-302", "C0:FF:EE:99", "Wokwi Key fob", 1.5, 0.5, "Suspended", "STN-003"),
-    ("USR005", "Priya Patel", "priya", "Hostel Block A", "A-118", "DE:AD:BE:EF", "Physical card", 2.0, 0.6, "Active", "STN-002"),
-    ("USR006", "Ananya Roy", "ananya", "Hostel Block B", "B-218", "CA:FE:BA:BE", "Physical card", 3.1, 0.9, "Active", "STN-002"),
+    ("USR001", "Rohith", "rohith", "Hostel Block A", "A-204", "01:02:03:04", "Wokwi Blue card", 3.0, 0.8, "Active", WIRED_STATION_ID, None),
+    ("USR002", "Deepankishor", "deepankishor", "Hostel Block B", "B-112", "11:22:33:44", "Wokwi Green card", 2.6, 0.7, "Active", WIRED_STATION_ID, None),
+    ("USR003", "Sanjay", "sanjay", "Hostel Block A", "A-305", "55:66:77:88", "Wokwi Yellow card", 1.5, 0.5, "Active", WIRED_STATION_ID, 3),
+    ("USR004", "Karthik N", "karthik", "PG Block C", "C-302", "C0:FF:EE:99", "Wokwi Key fob", 1.5, 0.5, "Suspended", "STN-003", None),
+    ("USR005", "Priya Patel", "priya", "Hostel Block A", "A-118", "DE:AD:BE:EF", "Physical card", 2.0, 0.6, "Active", "STN-002", None),
+    ("USR006", "Ananya Roy", "ananya", "Hostel Block B", "B-218", "CA:FE:BA:BE", "Physical card", 3.1, 0.9, "Active", "STN-002", None),
 ]
 
 
 def make_users():
     users = []
-    for (uid, name, mail, block, room, card, label, mean, spread, status, _) in STUDENTS:
+    for (uid, name, mail, block, room, card, label, _, _, status, _, limit) in STUDENTS:
         users.append({
             "id": uid, "name": name, "email": f"{mail}@aquaallot.demo",
             "hostelBlock": block, "roomNo": room, "rfid": card, "rfidCard": label,
             "todayUsage": 0.0, "monthlyUsage": 0.0, "totalSpent": 0.0,
-            # Starting values for the over-usage check. Once a student has enough history,
-            # the backend learns the real average / spread from their transactions.
-            "avgDailyUsage": mean, "usageStdDev": spread,
-            "dailyQuota": DAILY_QUOTA_LITERS, "status": status, "avatar": avatar(name.split()[0]),
+            "dailyLimit": limit,      # personal daily limit (None = default from Settings)
+            "status": status, "avatar": avatar(name.split()[0]),
             "createdAt": iso(datetime.now() - timedelta(days=HISTORY_DAYS + 10)),
         })
     _add_history_totals(users)
@@ -79,7 +79,7 @@ def make_transactions():
     counter = 5000
     for days_ago in range(HISTORY_DAYS, 0, -1):          # history stops yesterday: today starts clean
         day = now - timedelta(days=days_ago)
-        for (uid, name, _, block, _, card, _, mean, spread, status, station) in STUDENTS:
+        for (uid, name, _, block, _, card, _, mean, spread, status, station, _) in STUDENTS:
             if status != "Active" and days_ago < 12:      # suspended students stopped buying
                 continue
             liters = max(0.5, round(rng.gauss(mean, spread) * 2) / 2)   # nearest 0.5 L
@@ -153,6 +153,7 @@ def make_settings():
     return [{
         "id": "global",
         "waterPricePerLiter": WATER_PRICE_PER_LITER,
-        "dailyQuotaLiters": DAILY_QUOTA_LITERS,
+        "dailyLimitLiters": DAILY_LIMIT_LITERS,
+        "limitAction": LIMIT_ACTION,
         "usageDate": datetime.now().strftime("%Y-%m-%d"),   # day that todayUsage belongs to
     }]

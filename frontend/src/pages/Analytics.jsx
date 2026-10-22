@@ -26,8 +26,7 @@ export const Analytics = () => {
   const week = analytics.charts.thisWeek;
   const weekLiters = week.reduce((sum, day) => sum + day.liters, 0);
   const busiestHour = [...analytics.charts.today].sort((a, b) => b.liters - a.liters)[0];
-  const consumers = analytics.overuse.filter((row) => row.todayUsage > 0 || row.mean > 0);
-  const avgNormal = consumers.length ? consumers.reduce((sum, row) => sum + row.mean, 0) / consumers.length : 0;
+  const atLimit = analytics.overuse.filter((row) => row.reachedLimit || row.triedOverLimit).length;
 
   return (
     <div className="space-y-8 animate-fadeIn">
@@ -55,7 +54,7 @@ export const Analytics = () => {
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard title="Water (last 7 days)" value={`${weekLiters.toFixed(1)} L`} note={`${(weekLiters / 7).toFixed(1)} L per day on average`} />
-        <StatCard title="Normal use per student" value={`${avgNormal.toFixed(1)} L / day`} note="Average of the learned baselines" />
+        <StatCard title="Students at their limit" value={atLimit} note="Limits are set by the admin (Settings / Users)" color={atLimit ? 'text-rose-600' : 'text-violet-600'} />
         <StatCard
           title="Busiest time today"
           value={busiestHour && busiestHour.liters > 0 ? `${busiestHour.time}–${String(Number(busiestHour.time.slice(0, 2)) + 2).padStart(2, '0')}:00` : '—'}
@@ -106,16 +105,15 @@ export const Analytics = () => {
 
       {/* Students today */}
       <div className="p-6 bg-white rounded-3xl border border-slate-100 shadow-sm space-y-4">
-        <h3 className="text-base font-bold text-slate-900 font-['Outfit']">Students today vs their normal use</h3>
+        <h3 className="text-base font-bold text-slate-900 font-['Outfit']">Students today vs their daily limit</h3>
         <div className="overflow-x-auto">
           <table className="custom-table">
             <thead>
               <tr>
                 <th>Student</th>
                 <th>Today</th>
-                <th>Normal / day</th>
-                <th>3-sigma limit</th>
-                <th>Daily quota</th>
+                <th>Daily limit</th>
+                <th>Left today</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -130,17 +128,19 @@ export const Analytics = () => {
                   </td>
                   <td className="font-bold text-sky-600">{row.todayUsage} L</td>
                   <td className="text-slate-600">
-                    {row.mean} L <span className="text-[10px] text-slate-400">({row.learned ? `${row.historyDays} days` : 'start value'})</span>
+                    {row.limit} L{' '}
+                    <span className={`text-[10px] ${row.customLimit ? 'text-violet-600 font-bold' : 'text-slate-400'}`}>
+                      ({row.customLimit ? 'personal' : 'default'})
+                    </span>
                   </td>
-                  <td className="text-slate-600">{row.limit} L</td>
-                  <td className="text-slate-600">{row.quota} L</td>
+                  <td className="text-slate-600">{row.left} L</td>
                   <td>
-                    {row.aboveNormal || row.overQuota ? (
+                    {row.reachedLimit || row.triedOverLimit ? (
                       <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[11px] font-bold">
-                        {row.aboveNormal ? 'Above normal' : 'Over quota'}
+                        {row.reachedLimit ? 'Limit reached' : 'Asked for more'}
                       </span>
                     ) : (
-                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[11px] font-bold">Normal</span>
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[11px] font-bold">Within limit</span>
                     )}
                   </td>
                 </tr>

@@ -21,7 +21,6 @@ Life of one water order:
 
 import functools
 import logging
-import statistics
 import uuid
 from datetime import datetime, timedelta
 
@@ -30,8 +29,7 @@ log = logging.getLogger("aquaallot.services")
 MAX_LITERS_PER_ORDER = 20
 STUCK_ORDER_SECONDS = 60                # paid, but no water reported for this long → refund
 PENDING_ORDER_MINUTES = 15              # unpaid orders expire after this
-HISTORY_DAYS = 30                       # how far back the usage baseline looks
-MIN_HISTORY_DAYS = 5                    # fewer days than this → use the starting values
+DEFAULT_DAILY_LIMIT = 10                # litres per student per day, until the admin changes it
 
 
 class ServiceError(Exception):
@@ -99,8 +97,19 @@ def water_price(store):
     return float(settings(store).get("waterPricePerLiter", 5))
 
 
-def daily_quota(store, user):
-    return float(user.get("dailyQuota") or settings(store).get("dailyQuotaLiters", 10))
+def default_daily_limit(store):
+    """The limit every student gets (Settings page)."""
+    return float(settings(store).get("dailyLimitLiters") or DEFAULT_DAILY_LIMIT)
+
+
+def daily_limit(store, user):
+    """This student's limit: their personal limit (Users page) if the admin set one, else the default."""
+    return float(user.get("dailyLimit") or default_daily_limit(store))
+
+
+def limit_action(store):
+    """'block' = refuse orders above the limit, 'alert' = dispense but alert the admin."""
+    return settings(store).get("limitAction") or "block"
 
 
 def public_user(user):
@@ -136,83 +145,57 @@ def check_card(store, uid):
 
 
 # =====================================================================
-#   2. Normal usage + over-usage alerts
+#   2. Daily water limit (set by the admin)
 # =====================================================================
 
-def usage_profile(store, user, transactions=None):
+def limit_status(store, user):
     """
-    How much water this student normally uses per day, learned from their
-    last 30 days of purchases (days they bought water, today excluded).
+    Where this student stands against their daily limit today.
 
-        limit = average + 3 × standard deviation      ("3-sigma rule")
-
-    With less than 5 days of history we use the starting values from the user record.
+        limit = personal limit (Users page)  or  default limit (Settings page)
+        left  = limit - litres already dispensed today
     """
-    transactions = transactions if transactions is not None else store.all("transactions")
-    since = (now() - timedelta(days=HISTORY_DAYS)).strftime("%Y-%m-%d")
-    per_day = {}
-    for txn in transactions:
-        day = str(txn.get("timestamp", ""))[:10]
-        if txn.get("userId") == user["id"] and since <= day < today():
-            per_day[day] = per_day.get(day, 0) + float(txn.get("waterLiters") or 0)
-
-    learned = len(per_day) >= MIN_HISTORY_DAYS
-    if learned:
-        mean = statistics.mean(per_day.values())
-        std_dev = max(0.3, statistics.pstdev(per_day.values()))
-    else:
-        mean = float(user.get("avgDailyUsage") or 2.5)
-        std_dev = float(user.get("usageStdDev") or 0.6)
-
+    limit = daily_limit(store, user)
+    used = round(float(user.get("todayUsage") or 0), 2)
     return {
-        "mean": round(mean, 2), "stdDev": round(std_dev, 2),
-        "limit": round(mean + 3 * std_dev, 1), "quota": daily_quota(store, user),
-        "historyDays": len(per_day), "learned": learned,
+        "limit": limit, "customLimit": bool(user.get("dailyLimit")),
+        "todayUsage": used, "left": round(max(0.0, limit - used), 2),
+        "percentOfLimit": round(used / limit * 100) if limit else 0,
+        "reachedLimit": used >= limit,
     }
 
 
-def check_usage(store, user, liters, station_id):
+def check_limit(store, user, liters, station_id):
     """
-    Called BEFORE an order is created. Raises one alert per student per day
-    on the admin dashboard when today's usage (including this order) goes
-    above their normal limit or above the daily quota. The order is still allowed.
+    Called BEFORE an order is created: would today's usage + this order go
+    above the student's daily limit?
 
-    Returns a short warning for the OLED ('' when everything is normal).
+        • limitAction = 'block'  → the order is refused (the OLED shows how much is left)
+        • limitAction = 'alert'  → the order is allowed, with a warning on the OLED
+
+    Either way the admin gets one "Daily Limit Exceeded" alert per student per day.
+    Returns a short warning for the OLED ('' when the order is within the limit).
     """
-    profile = usage_profile(store, user)
-    after = round(float(user.get("todayUsage") or 0) + float(liters), 2)
-    warnings = []
+    status = limit_status(store, user)
+    after = round(status["todayUsage"] + float(liters), 2)
+    if after <= status["limit"]:
+        return ""
 
-    if after > profile["limit"]:
-        warnings.append("Above normal use")
-        key = f"spike-{user['id']}-{today()}"
-        deviation = round((after - profile["mean"]) / profile["mean"] * 100) if profile["mean"] else 0
-        if not store.find_one("anomalies", dedupeKey=key):
-            store.insert("anomalies", {
-                "id": new_id("ANOM"), "dedupeKey": key,
-                "userId": user["id"], "userName": user["name"], "hostelBlock": user.get("hostelBlock"),
-                "mean": profile["mean"], "stdDev": profile["stdDev"], "upperThreshold": profile["limit"],
-                "observed": after, "deviation": f"+{deviation}%", "severity": "Critical",
-                "reason": f"{after} L today vs normal {profile['mean']} L/day (3-sigma limit {profile['limit']} L).",
-                "timestamp": now_iso(), "status": "Investigating", "stationId": station_id,
-            })
-        raise_alert(
-            store, "Critical", "Unusual Consumption Spike",
-            f"{user['name']} ordered {float(liters):g} L → {after} L today. Normal is {profile['mean']} L/day, 3-sigma limit {profile['limit']} L.",
-            station_id, user["id"], dedupe_key=key,
-        )
-
-    if after > profile["quota"]:
-        warnings.append("Over daily quota")
-        raise_alert(
-            store, "Warning", "Daily Quota Exceeded",
-            f"{user['name']} ordered {float(liters):g} L → {after} L today, above the daily allotment of {profile['quota']:g} L.",
-            station_id, user["id"], dedupe_key=f"quota-{user['id']}-{today()}",
-        )
-
-    if warnings and user.get("status") == "Active":
+    blocked = limit_action(store) == "block"
+    raise_alert(
+        store, "Warning", "Daily Limit Exceeded",
+        f"{user['name']} asked for {float(liters):g} L with {status['todayUsage']:g} L already used today "
+        f"(daily limit {status['limit']:g} L). " + ("Order refused." if blocked else "Order allowed."),
+        station_id, user["id"], dedupe_key=f"limit-{user['id']}-{today()}",
+    )
+    if user.get("status") == "Active":
         store.update("users", {"id": user["id"]}, set={"status": "Warning"})
-    return warnings[0] if warnings else ""
+
+    if blocked:
+        if status["left"] <= 0:
+            raise ServiceError("Daily limit reached")
+        raise ServiceError(f"Only {status['left']:g} L left today")
+    return "Over daily limit"
 
 
 # =====================================================================
@@ -229,7 +212,7 @@ def create_order(store, user, liters, station_id, source):
     for old in store.find("orders", stationId=station_id, status="pending"):
         store.update("orders", {"id": old["id"]}, set={"status": "cancelled"})
 
-    warning = check_usage(store, user, liters, station_id)
+    warning = check_limit(store, user, liters, station_id)
     order = {
         "id": new_id("ORD"),
         "userId": user["id"], "userName": user["name"],
@@ -607,20 +590,19 @@ def analytics(store):
             "transactionsWeek": sum(1 for t in mine if day_of(t) >= days_back(6)),
         })
 
-    # ---- over-usage today (admin dashboard panel) ----
+    # ---- daily limits today (admin dashboard panel) ----
+    alerted = {a.get("userId") for a in store.all("alerts")
+               if str(a.get("dedupeKey", "")).startswith("limit-") and str(a.get("dedupeKey", "")).endswith(today_str)}
     overuse = []
     for user in users:
         if user.get("status") in ("Suspended", "Inactive"):
             continue
-        profile = usage_profile(store, user, transactions)
-        used = round(float(user.get("todayUsage") or 0), 2)
         overuse.append({
             "userId": user["id"], "name": user["name"], "hostelBlock": user.get("hostelBlock"),
-            "avatar": user.get("avatar"), "todayUsage": used, **profile,
-            "percentOfLimit": round(used / profile["limit"] * 100) if profile["limit"] else 0,
-            "aboveNormal": used > profile["limit"], "overQuota": used > profile["quota"],
+            "avatar": user.get("avatar"), **limit_status(store, user),
+            "triedOverLimit": user["id"] in alerted,          # asked for more than was left today
         })
-    overuse.sort(key=lambda row: row["percentOfLimit"], reverse=True)
+    overuse.sort(key=lambda row: (row["triedOverLimit"], row["percentOfLimit"]), reverse=True)
 
     return {
         "kpis": {
@@ -631,7 +613,7 @@ def analytics(store):
             "revenueChangePct": _percent_change(revenue_week, revenue_last_week),
             "activeStudents": sum(1 for u in users if u.get("status") in ("Active", "Warning")),
             "totalStudents": len(users), "newStudentsWeek": new_students,
-            "overUsageToday": sum(1 for row in overuse if row["aboveNormal"] or row["overQuota"]),
+            "overUsageToday": sum(1 for row in overuse if row["reachedLimit"] or row["triedOverLimit"]),
         },
         "charts": {"today": today_chart, "thisWeek": week_chart, "thisMonth": month_chart},
         "revenue": [{"label": row["day"], "amount": row["revenue"]} for row in week_chart],

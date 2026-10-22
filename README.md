@@ -53,7 +53,7 @@
 - ✅ User activity analytics
 
 ### 🤖 **Anomaly Detection**
-- ✅ 3-Sigma statistical analysis
+- ✅ Admin-set daily water limits (default + per student)
 - ✅ Leak detection algorithms
 - ✅ Unusual usage pattern identification
 - ✅ Automatic alert generation
@@ -81,7 +81,7 @@
 
 - Every order is paid with **Razorpay** – on the dashboard, or by pressing **PAY** in Wokwi (the checkout opens on Live Station). The backend verifies the signature before the valve opens.
 - Only the litres actually dispensed are charged – unused litres and stuck orders are **refunded automatically through Razorpay**.
-- Each student's normal daily use is learned from their history; going above **μ + 3σ** or the **daily quota** raises one alert per day on the admin dashboard.
+- The admin sets a **daily water limit**: a default for everyone (Settings) and personal limits per student (Users page). Orders above the limit are refused (or allowed with an alert – admin's choice), with one alert per student per day.
 
 ## 🚀 Quick Start
 
@@ -224,26 +224,23 @@ VITE_RAZORPAY_KEY_ID=rzp_test_aquaallot_demo2026
 |------------|-----|---------|---------------|
 | Blue | 01:02:03:04 | Rohith | Normal purchase, pay with Razorpay |
 | Green | 11:22:33:44 | Deepankishor | Press PAY in Wokwi → Razorpay opens on the dashboard |
-| Yellow | 55:66:77:88 | Sanjay | 5 L exceeds his 3-sigma limit → over-usage alert on the admin dashboard |
+| Yellow | 55:66:77:88 | Sanjay | Personal limit 3 L → 5 L is refused ("Only 3 L left today") and the admin is alerted |
 | Key fob | C0:FF:EE:99 | Karthik N | Suspended → access denied |
 | Red | AA:BB:CC:DD | – | Unknown card → access denied |
 | NFC tag | 04:11:22:33:44:55:66 | – | Register it live on the Users page |
 
 ---
 
-## 🤖 Anomaly Detection Algorithm
+## 🚰 Daily Water Limit
 
-**3-Sigma Rule:**
 ```
-Mean (μ) = 2.8L
-Std Dev (σ) = 0.8L
-Threshold = μ + 3σ = 5.2L
+limit = personal limit (Users page)  or  default limit (Settings, 10 L)
 
-If consumption > 5.2L → CRITICAL ALERT
-├─ Valve closes immediately
-├─ Email alert sent
-├─ Transaction logged
-└─ Dashboard updates
+Before every order:
+  used today + this order <= limit  →  order created, pay with Razorpay
+  otherwise                         →  refused: "Only X L left today"
+                                       (or allowed with a warning, if the admin chose "Allow + alert")
+                                       + one "Daily Limit Exceeded" alert per student per day
 ```
 
 ---
@@ -384,7 +381,7 @@ python tools/fake_esp32.py --demo
 ### Backend Code
 - **Flask REST API** design
 - **HMAC-SHA256** security implementation
-- **3-Sigma statistical** analysis
+- **Daily water limit** rules
 - **Database schema** design
 - **Error handling** strategies
 
@@ -459,7 +456,7 @@ esptool.py write_flash 0x1000 firmware.bin
 - [x] Razorpay payment integration
 - [x] ESP32 firmware complete
 - [x] Wokwi hardware simulation
-- [x] 3-Sigma anomaly detection
+- [x] Admin-set daily water limits
 - [x] Real-time data synchronization
 - [x] Complete documentation
 - [x] Testing scenarios

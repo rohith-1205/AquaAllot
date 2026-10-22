@@ -232,8 +232,7 @@ def create_user():
         "hostelBlock": data.get("hostelBlock", "Hostel Block A"), "roomNo": data.get("roomNo", ""),
         "rfid": card, "rfidCard": data.get("rfidCard", "Registered from dashboard"),
         "todayUsage": 0.0, "monthlyUsage": 0.0, "totalSpent": 0.0,
-        "avgDailyUsage": float(data.get("avgDailyUsage", 2.5)), "usageStdDev": 0.6,
-        "dailyQuota": float(data.get("dailyQuota") or services.settings(store).get("dailyQuotaLiters", 10)),
+        "dailyLimit": None,           # None = the default limit from Settings
         "status": "Active", "avatar": demo_data.avatar(data["name"]), "createdAt": services.now_iso(),
     }
     store.insert("users", user)
@@ -246,7 +245,7 @@ def get_user(user_id):
     user = store.find_one("users", id=user_id)
     if not user:
         return fail("User not found", 404)
-    return ok({"user": user, "profile": services.usage_profile(store, user)})
+    return ok({"user": user, "limit": services.limit_status(store, user)})
 
 
 @app.route("/api/users/<user_id>/usage", methods=["GET"])
@@ -257,8 +256,18 @@ def get_user_usage(user_id):
 
 @app.route("/api/users/<user_id>", methods=["PUT"])
 def update_user(user_id):
-    allowed = ("name", "email", "hostelBlock", "roomNo", "status", "avgDailyUsage", "dailyQuota")
-    changes = {key: value for key, value in body().items() if key in allowed}
+    data = body()
+    allowed = ("name", "email", "hostelBlock", "roomNo", "status")
+    changes = {key: value for key, value in data.items() if key in allowed}
+    if "dailyLimit" in data:
+        # personal daily limit in litres; empty / null = use the default limit from Settings
+        if data["dailyLimit"] in (None, ""):
+            changes["dailyLimit"] = None
+        else:
+            limit = float(data["dailyLimit"])
+            if limit <= 0:
+                return fail("Daily limit must be more than 0 L")
+            changes["dailyLimit"] = limit
     user = store.update("users", {"id": user_id}, set=changes)
     return ok({"user": user}) if user else fail("User not found", 404)
 
@@ -322,12 +331,16 @@ def update_settings():
         if price <= 0:
             return fail("Price must be positive")
         changes["waterPricePerLiter"] = price
-    if "dailyQuotaLiters" in data:
-        quota = float(data["dailyQuotaLiters"] or 0)
-        if quota <= 0:
-            return fail("Daily quota must be positive")
-        changes["dailyQuotaLiters"] = quota
-        store.update_many("users", set={"dailyQuota": quota})   # same allotment for everyone
+    if "dailyLimitLiters" in data:
+        # default limit for every student without a personal limit (Users page)
+        limit = float(data["dailyLimitLiters"] or 0)
+        if limit <= 0:
+            return fail("Daily limit must be more than 0 L")
+        changes["dailyLimitLiters"] = limit
+    if "limitAction" in data:
+        if data["limitAction"] not in ("block", "alert"):
+            return fail("limitAction must be 'block' or 'alert'")
+        changes["limitAction"] = data["limitAction"]
     settings = store.update("settings", {"id": "global"}, set=changes)
     return ok({"settings": settings}, "Settings saved")
 

@@ -22,7 +22,7 @@ export const AppProvider = ({ children }) => {
   const [alerts, setAlerts] = useState(initialAlerts);
   const [anomalies, setAnomalies] = useState(initialAnomalies);
   const [analytics, setAnalytics] = useState(initialAnalytics);   // every dashboard number + chart
-  const [settings, setSettings] = useState({ waterPricePerLiter: 5, dailyQuotaLiters: 10 });
+  const [settings, setSettings] = useState({ waterPricePerLiter: 5, dailyLimitLiters: 10, limitAction: 'block' });
 
   // Live Wokwi station: { mqtt, stations: [...], events: [...] }
   const [live, setLive] = useState(null);
@@ -89,6 +89,13 @@ export const AppProvider = ({ children }) => {
     await api.resolveAlert(alertId);
   };
 
+  // Personal daily limit for one student (null = use the default limit from Settings)
+  const setUserLimit = async (userId, dailyLimit) => {
+    const res = await api.updateUser(userId, { dailyLimit });
+    setUsers((prev) => prev.map((u) => (u.id === userId ? res.user : u)));
+    loadBackendData();
+  };
+
   const saveSettings = async (changes) => {
     const res = await api.updateSettings(changes);
     setSettings(res.settings);
@@ -133,6 +140,7 @@ export const AppProvider = ({ children }) => {
         addNewUser,
         resolveAlert,
         saveSettings,
+        setUserLimit,
         resetDemoData,
         refresh: loadBackendData,
         // live Wokwi station

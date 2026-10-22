@@ -11,10 +11,10 @@ const pageTitles = {
   '/dispensing': { title: 'New Water Order', subtitle: 'Send an order to the Wokwi station and pay with Razorpay.' },
   '/payments': { title: 'Payment History & Audit', subtitle: 'Track Razorpay digital transactions and revenue logs.' },
   '/analytics': { title: 'Consumption Analytics', subtitle: 'Explore water usage trends, peak demand, and station metrics.' },
-  '/alerts': { title: 'Anomalies & System Alerts', subtitle: 'Statistical 3-Sigma anomaly detection & real-time warnings.' },
+  '/alerts': { title: 'Anomalies & System Alerts', subtitle: 'Daily limits, leaks, refunds & real-time warnings.' },
   '/live': { title: 'Live Station', subtitle: 'The Wokwi ESP32 in real time over MQTT.' },
   '/stations': { title: 'Stations & IoT Telemetry', subtitle: 'ESP32 controller state, YF-S201 flow sensors, and solenoid valves.' },
-  '/settings': { title: 'System Settings', subtitle: 'Water price, daily quota, station link and demo data.' }
+  '/settings': { title: 'System Settings', subtitle: 'Water price, daily water limit, station link and demo data.' }
 };
 
 export const Navbar = ({ setIsMobileOpen }) => {

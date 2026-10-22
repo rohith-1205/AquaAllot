@@ -42,7 +42,7 @@ const char* MQTT_BROKER   = "test.mosquitto.org";
 const int   MQTT_PORT     = 1883;
 const char* TOPIC_ROOT    = "aquaallot-demo-rohith1205";   // MUST match MQTT_TOPIC_ROOT in the backend
 const char* STATION_ID    = "STN-001";
-const char* FIRMWARE      = "3.2.0";
+const char* FIRMWARE      = "3.3.0";
 
 // ---------------- PIN DEFINITIONS ----------------
 
@@ -131,7 +131,7 @@ String payMethod = "";
 String txnLabel = "";
 String paymentNote = "";
 String alertReason = "";
-String orderWarning = "";      // e.g. "Above normal use" (admin is alerted)
+String orderWarning = "";      // e.g. "Over daily limit" (admin is alerted)
 float refundAmount = 0;        // unused litres refunded through Razorpay
 
 float dispensedLiters = 0;
@@ -884,8 +884,19 @@ void onCloudMessage(char* topicName, byte* payload, unsigned int length) {
                  msg["liters"] | 0.0, msg["amount"] | 0.0, msg["remote"] | false, msg["warning"] | "");
   }
   else if (type == "order_failed") {
-    if (state == CREATING_ORDER)
-      showNotice("ORDER FAILED", msg["reason"] | "Try again", "");
+    if (state == CREATING_ORDER) {
+      String reason = msg["reason"] | "Try again";
+      // e.g. "Only 3 L left today" – the admin sets each student's daily limit.
+      // Stay on the quantity menu so the student can choose less water.
+      bool overLimit = reason.indexOf("limit") >= 0 || reason.indexOf("left today") >= 0;
+      if (overLimit) {
+        beep(300);
+        setState(CHOOSE_QUANTITY);
+        showMessage("DAILY LIMIT", reason, "Choose less water", "[1] [2] [5]");
+      } else {
+        showNotice("ORDER FAILED", reason, "");
+      }
+    }
   }
   else if (type == "payment_ok") {
     if (orderId == (msg["order_id"] | ""))

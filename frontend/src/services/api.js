@@ -64,6 +64,7 @@ export const api = {
 
   // ---------- Admin ----------
   createUser: (user) => request('post', '/users', user),
+  updateUser: (userId, changes) => request('put', `/users/${userId}`, changes),
   resolveAlert: (alertId) => request('post', `/alerts/${alertId}/resolve`),
   updateSettings: (settings) => request('put', '/settings', settings),
   resetDemo: () => request('post', '/admin/reset_demo')

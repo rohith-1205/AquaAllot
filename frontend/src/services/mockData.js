@@ -11,14 +11,12 @@ export const initialUsers = [
     "rfid": "01:02:03:04",
     "rfidCard": "Wokwi Blue card",
     "todayUsage": 0.0,
-    "monthlyUsage": 70.0,
+    "monthlyUsage": 73.5,
     "totalSpent": 512.5,
-    "avgDailyUsage": 3.0,
-    "usageStdDev": 0.8,
-    "dailyQuota": 10,
+    "dailyLimit": null,
     "status": "Active",
     "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Rohith",
-    "createdAt": "2026-09-11T19:57:28"
+    "createdAt": "2026-09-12T04:02:48"
   },
   {
     "id": "USR002",
@@ -29,14 +27,12 @@ export const initialUsers = [
     "rfid": "11:22:33:44",
     "rfidCard": "Wokwi Green card",
     "todayUsage": 0.0,
-    "monthlyUsage": 56.0,
+    "monthlyUsage": 59.0,
     "totalSpent": 405.0,
-    "avgDailyUsage": 2.6,
-    "usageStdDev": 0.7,
-    "dailyQuota": 10,
+    "dailyLimit": null,
     "status": "Active",
     "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Deepankishor",
-    "createdAt": "2026-09-11T19:57:28"
+    "createdAt": "2026-09-12T04:02:48"
   },
   {
     "id": "USR003",
@@ -47,14 +43,12 @@ export const initialUsers = [
     "rfid": "55:66:77:88",
     "rfidCard": "Wokwi Yellow card",
     "todayUsage": 0.0,
-    "monthlyUsage": 31.0,
+    "monthlyUsage": 32.5,
     "totalSpent": 240.0,
-    "avgDailyUsage": 1.5,
-    "usageStdDev": 0.5,
-    "dailyQuota": 10,
+    "dailyLimit": 3,
     "status": "Active",
     "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Sanjay",
-    "createdAt": "2026-09-11T19:57:28"
+    "createdAt": "2026-09-12T04:02:48"
   },
   {
     "id": "USR004",
@@ -65,14 +59,12 @@ export const initialUsers = [
     "rfid": "C0:FF:EE:99",
     "rfidCard": "Wokwi Key fob",
     "todayUsage": 0.0,
-    "monthlyUsage": 12.5,
+    "monthlyUsage": 14.0,
     "totalSpent": 142.5,
-    "avgDailyUsage": 1.5,
-    "usageStdDev": 0.5,
-    "dailyQuota": 10,
+    "dailyLimit": null,
     "status": "Suspended",
     "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Karthik",
-    "createdAt": "2026-09-11T19:57:28"
+    "createdAt": "2026-09-12T04:02:48"
   },
   {
     "id": "USR005",
@@ -83,14 +75,12 @@ export const initialUsers = [
     "rfid": "DE:AD:BE:EF",
     "rfidCard": "Physical card",
     "todayUsage": 0.0,
-    "monthlyUsage": 39.0,
+    "monthlyUsage": 41.0,
     "totalSpent": 300.0,
-    "avgDailyUsage": 2.0,
-    "usageStdDev": 0.6,
-    "dailyQuota": 10,
+    "dailyLimit": null,
     "status": "Active",
     "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Priya",
-    "createdAt": "2026-09-11T19:57:28"
+    "createdAt": "2026-09-12T04:02:48"
   },
   {
     "id": "USR006",
@@ -101,14 +91,12 @@ export const initialUsers = [
     "rfid": "CA:FE:BA:BE",
     "rfidCard": "Physical card",
     "todayUsage": 0.0,
-    "monthlyUsage": 64.0,
+    "monthlyUsage": 67.0,
     "totalSpent": 465.0,
-    "avgDailyUsage": 3.1,
-    "usageStdDev": 0.9,
-    "dailyQuota": 10,
+    "dailyLimit": null,
     "status": "Active",
     "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Ananya",
-    "createdAt": "2026-09-11T19:57:28"
+    "createdAt": "2026-09-12T04:02:48"
   }
 ];
 
@@ -187,7 +175,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-20T21:47:00"
+    "timestamp": "2026-10-21T21:47:00"
   },
   {
     "id": "TXN-5227",
@@ -203,7 +191,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-20T21:42:00"
+    "timestamp": "2026-10-21T21:42:00"
   },
   {
     "id": "TXN-5228",
@@ -219,7 +207,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-20T18:07:00"
+    "timestamp": "2026-10-21T18:07:00"
   },
   {
     "id": "TXN-5232",
@@ -235,7 +223,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-20T13:44:00"
+    "timestamp": "2026-10-21T13:44:00"
   },
   {
     "id": "TXN-5229",
@@ -251,7 +239,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-20T09:58:00"
+    "timestamp": "2026-10-21T09:58:00"
   },
   {
     "id": "TXN-5230",
@@ -267,7 +255,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-20T09:50:00"
+    "timestamp": "2026-10-21T09:50:00"
   },
   {
     "id": "TXN-5220",
@@ -283,7 +271,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-19T21:47:00"
+    "timestamp": "2026-10-20T21:47:00"
   },
   {
     "id": "TXN-5226",
@@ -299,7 +287,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-19T19:04:00"
+    "timestamp": "2026-10-20T19:04:00"
   },
   {
     "id": "TXN-5225",
@@ -315,7 +303,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-19T13:45:00"
+    "timestamp": "2026-10-20T13:45:00"
   },
   {
     "id": "TXN-5224",
@@ -331,7 +319,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-19T13:02:00"
+    "timestamp": "2026-10-20T13:02:00"
   },
   {
     "id": "TXN-5221",
@@ -347,7 +335,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-19T12:40:00"
+    "timestamp": "2026-10-20T12:40:00"
   },
   {
     "id": "TXN-5222",
@@ -363,7 +351,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-19T12:11:00"
+    "timestamp": "2026-10-20T12:11:00"
   },
   {
     "id": "TXN-5223",
@@ -379,7 +367,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-19T09:00:00"
+    "timestamp": "2026-10-20T09:00:00"
   },
   {
     "id": "TXN-5216",
@@ -395,7 +383,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-18T20:48:00"
+    "timestamp": "2026-10-19T20:48:00"
   },
   {
     "id": "TXN-5218",
@@ -411,7 +399,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-18T19:58:00"
+    "timestamp": "2026-10-19T19:58:00"
   },
   {
     "id": "TXN-5213",
@@ -427,7 +415,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-18T19:04:00"
+    "timestamp": "2026-10-19T19:04:00"
   },
   {
     "id": "TXN-5219",
@@ -443,7 +431,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-18T18:19:00"
+    "timestamp": "2026-10-19T18:19:00"
   },
   {
     "id": "TXN-5217",
@@ -459,7 +447,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-18T12:49:00"
+    "timestamp": "2026-10-19T12:49:00"
   },
   {
     "id": "TXN-5214",
@@ -475,7 +463,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-18T09:09:00"
+    "timestamp": "2026-10-19T09:09:00"
   },
   {
     "id": "TXN-5215",
@@ -491,7 +479,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-18T08:15:00"
+    "timestamp": "2026-10-19T08:15:00"
   },
   {
     "id": "TXN-5211",
@@ -507,7 +495,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-17T19:21:00"
+    "timestamp": "2026-10-18T19:21:00"
   },
   {
     "id": "TXN-5210",
@@ -523,7 +511,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-17T13:30:00"
+    "timestamp": "2026-10-18T13:30:00"
   },
   {
     "id": "TXN-5206",
@@ -539,7 +527,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-17T13:14:00"
+    "timestamp": "2026-10-18T13:14:00"
   },
   {
     "id": "TXN-5209",
@@ -555,7 +543,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-17T09:40:00"
+    "timestamp": "2026-10-18T09:40:00"
   },
   {
     "id": "TXN-5207",
@@ -571,7 +559,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-17T09:19:00"
+    "timestamp": "2026-10-18T09:19:00"
   },
   {
     "id": "TXN-5212",
@@ -587,7 +575,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-17T07:16:00"
+    "timestamp": "2026-10-18T07:16:00"
   },
   {
     "id": "TXN-5208",
@@ -603,7 +591,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-17T07:03:00"
+    "timestamp": "2026-10-18T07:03:00"
   },
   {
     "id": "TXN-5199",
@@ -619,7 +607,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-16T19:35:00"
+    "timestamp": "2026-10-17T19:35:00"
   },
   {
     "id": "TXN-5200",
@@ -635,7 +623,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-16T18:47:00"
+    "timestamp": "2026-10-17T18:47:00"
   },
   {
     "id": "TXN-5201",
@@ -651,7 +639,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-16T17:44:00"
+    "timestamp": "2026-10-17T17:44:00"
   },
   {
     "id": "TXN-5203",
@@ -667,7 +655,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-16T17:07:00"
+    "timestamp": "2026-10-17T17:07:00"
   },
   {
     "id": "TXN-5204",
@@ -683,7 +671,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-16T13:46:00"
+    "timestamp": "2026-10-17T13:46:00"
   },
   {
     "id": "TXN-5198",
@@ -699,7 +687,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-16T12:19:00"
+    "timestamp": "2026-10-17T12:19:00"
   },
   {
     "id": "TXN-5205",
@@ -715,7 +703,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-16T08:53:00"
+    "timestamp": "2026-10-17T08:53:00"
   },
   {
     "id": "TXN-5202",
@@ -731,7 +719,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-16T08:46:00"
+    "timestamp": "2026-10-17T08:46:00"
   },
   {
     "id": "TXN-5195",
@@ -747,7 +735,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-15T20:48:00"
+    "timestamp": "2026-10-16T20:48:00"
   },
   {
     "id": "TXN-5194",
@@ -763,7 +751,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-15T20:12:00"
+    "timestamp": "2026-10-16T20:12:00"
   },
   {
     "id": "TXN-5197",
@@ -779,7 +767,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-15T19:50:00"
+    "timestamp": "2026-10-16T19:50:00"
   },
   {
     "id": "TXN-5196",
@@ -795,7 +783,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-15T19:41:00"
+    "timestamp": "2026-10-16T19:41:00"
   },
   {
     "id": "TXN-5191",
@@ -811,7 +799,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-15T17:11:00"
+    "timestamp": "2026-10-16T17:11:00"
   },
   {
     "id": "TXN-5193",
@@ -827,7 +815,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-15T13:35:00"
+    "timestamp": "2026-10-16T13:35:00"
   },
   {
     "id": "TXN-5192",
@@ -843,7 +831,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-15T12:22:00"
+    "timestamp": "2026-10-16T12:22:00"
   },
   {
     "id": "TXN-5186",
@@ -859,7 +847,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-14T21:51:00"
+    "timestamp": "2026-10-15T21:51:00"
   },
   {
     "id": "TXN-5187",
@@ -875,7 +863,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-14T21:17:00"
+    "timestamp": "2026-10-15T21:17:00"
   },
   {
     "id": "TXN-5184",
@@ -891,7 +879,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-14T19:45:00"
+    "timestamp": "2026-10-15T19:45:00"
   },
   {
     "id": "TXN-5189",
@@ -907,7 +895,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-14T19:36:00"
+    "timestamp": "2026-10-15T19:36:00"
   },
   {
     "id": "TXN-5185",
@@ -923,7 +911,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-14T18:11:00"
+    "timestamp": "2026-10-15T18:11:00"
   },
   {
     "id": "TXN-5190",
@@ -939,7 +927,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-14T17:01:00"
+    "timestamp": "2026-10-15T17:01:00"
   },
   {
     "id": "TXN-5188",
@@ -955,7 +943,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-14T12:53:00"
+    "timestamp": "2026-10-15T12:53:00"
   },
   {
     "id": "TXN-5179",
@@ -971,7 +959,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-13T21:51:00"
+    "timestamp": "2026-10-14T21:51:00"
   },
   {
     "id": "TXN-5180",
@@ -987,7 +975,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-13T21:50:00"
+    "timestamp": "2026-10-14T21:50:00"
   },
   {
     "id": "TXN-5183",
@@ -1003,7 +991,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-13T19:06:00"
+    "timestamp": "2026-10-14T19:06:00"
   },
   {
     "id": "TXN-5177",
@@ -1019,7 +1007,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-13T18:45:00"
+    "timestamp": "2026-10-14T18:45:00"
   },
   {
     "id": "TXN-5181",
@@ -1035,7 +1023,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-13T17:04:00"
+    "timestamp": "2026-10-14T17:04:00"
   },
   {
     "id": "TXN-5178",
@@ -1051,7 +1039,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-13T12:06:00"
+    "timestamp": "2026-10-14T12:06:00"
   },
   {
     "id": "TXN-5182",
@@ -1067,7 +1055,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-13T07:54:00"
+    "timestamp": "2026-10-14T07:54:00"
   },
   {
     "id": "TXN-5174",
@@ -1083,7 +1071,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-12T17:10:00"
+    "timestamp": "2026-10-13T17:10:00"
   },
   {
     "id": "TXN-5176",
@@ -1099,7 +1087,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-12T13:36:00"
+    "timestamp": "2026-10-13T13:36:00"
   },
   {
     "id": "TXN-5175",
@@ -1115,7 +1103,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-002",
-    "timestamp": "2026-10-12T13:06:00"
+    "timestamp": "2026-10-13T13:06:00"
   },
   {
     "id": "TXN-5173",
@@ -1131,7 +1119,7 @@ export const initialTransactions = [
     "razorpayPaymentId": null,
     "orderId": null,
     "stationId": "STN-001",
-    "timestamp": "2026-10-12T12:29:00"
+    "timestamp": "2026-10-13T12:29:00"
   }
 ];
 
@@ -1203,66 +1191,66 @@ export const initialAnalytics = {
     ],
     "thisWeek": [
       {
-        "day": "Thu",
-        "date": "2026-10-15",
+        "day": "Fri",
+        "date": "2026-10-16",
         "liters": 14.5,
         "revenue": 72.5
       },
       {
-        "day": "Fri",
-        "date": "2026-10-16",
+        "day": "Sat",
+        "date": "2026-10-17",
         "liters": 14.0,
         "revenue": 70.0
       },
       {
-        "day": "Sat",
-        "date": "2026-10-17",
-        "liters": 12.5,
-        "revenue": 62.5
-      },
-      {
         "day": "Sun",
         "date": "2026-10-18",
-        "liters": 11.0,
-        "revenue": 55.0
+        "liters": 12.5,
+        "revenue": 62.5
       },
       {
         "day": "Mon",
         "date": "2026-10-19",
-        "liters": 12.5,
-        "revenue": 62.5
+        "liters": 11.0,
+        "revenue": 55.0
       },
       {
         "day": "Tue",
         "date": "2026-10-20",
-        "liters": 12.0,
-        "revenue": 60.0
+        "liters": 12.5,
+        "revenue": 62.5
       },
       {
         "day": "Wed",
         "date": "2026-10-21",
+        "liters": 12.0,
+        "revenue": 60.0
+      },
+      {
+        "day": "Thu",
+        "date": "2026-10-22",
         "liters": 0,
         "revenue": 0
       }
     ],
     "thisMonth": [
       {
-        "week": "24 Sep – 30 Sep",
+        "week": "25 Sep – 01 Oct",
         "liters": 102.5,
         "revenue": 512.5
       },
       {
-        "week": "01 Oct – 07 Oct",
+        "week": "02 Oct – 08 Oct",
         "liters": 104.5,
         "revenue": 522.5
       },
       {
-        "week": "08 Oct – 14 Oct",
+        "week": "09 Oct – 15 Oct",
         "liters": 91.5,
         "revenue": 457.5
       },
       {
-        "week": "15 Oct – 21 Oct",
+        "week": "16 Oct – 22 Oct",
         "liters": 76.5,
         "revenue": 382.5
       }
@@ -1270,31 +1258,31 @@ export const initialAnalytics = {
   },
   "revenue": [
     {
-      "label": "Thu",
+      "label": "Fri",
       "amount": 72.5
     },
     {
-      "label": "Fri",
+      "label": "Sat",
       "amount": 70.0
     },
     {
-      "label": "Sat",
-      "amount": 62.5
-    },
-    {
       "label": "Sun",
-      "amount": 55.0
+      "amount": 62.5
     },
     {
       "label": "Mon",
-      "amount": 62.5
+      "amount": 55.0
     },
     {
       "label": "Tue",
-      "amount": 60.0
+      "amount": 62.5
     },
     {
       "label": "Wed",
+      "amount": 60.0
+    },
+    {
+      "label": "Thu",
       "amount": 0
     }
   ],
@@ -1350,80 +1338,65 @@ export const initialAnalytics = {
       "name": "Rohith",
       "hostelBlock": "Hostel Block A",
       "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Rohith",
+      "limit": 10.0,
+      "customLimit": false,
       "todayUsage": 0.0,
-      "mean": 3.42,
-      "stdDev": 0.68,
-      "limit": 5.5,
-      "quota": 10.0,
-      "historyDays": 30,
-      "learned": true,
+      "left": 10.0,
       "percentOfLimit": 0,
-      "aboveNormal": false,
-      "overQuota": false
+      "reachedLimit": false,
+      "triedOverLimit": false
     },
     {
       "userId": "USR002",
       "name": "Deepankishor",
       "hostelBlock": "Hostel Block B",
       "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Deepankishor",
+      "limit": 10.0,
+      "customLimit": false,
       "todayUsage": 0.0,
-      "mean": 2.7,
-      "stdDev": 0.71,
-      "limit": 4.8,
-      "quota": 10.0,
-      "historyDays": 30,
-      "learned": true,
+      "left": 10.0,
       "percentOfLimit": 0,
-      "aboveNormal": false,
-      "overQuota": false
+      "reachedLimit": false,
+      "triedOverLimit": false
     },
     {
       "userId": "USR003",
       "name": "Sanjay",
       "hostelBlock": "Hostel Block A",
       "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Sanjay",
+      "limit": 3.0,
+      "customLimit": true,
       "todayUsage": 0.0,
-      "mean": 1.6,
-      "stdDev": 0.66,
-      "limit": 3.6,
-      "quota": 10.0,
-      "historyDays": 30,
-      "learned": true,
+      "left": 3.0,
       "percentOfLimit": 0,
-      "aboveNormal": false,
-      "overQuota": false
+      "reachedLimit": false,
+      "triedOverLimit": false
     },
     {
       "userId": "USR005",
       "name": "Priya Patel",
       "hostelBlock": "Hostel Block A",
       "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Priya",
+      "limit": 10.0,
+      "customLimit": false,
       "todayUsage": 0.0,
-      "mean": 2.0,
-      "stdDev": 0.65,
-      "limit": 3.9,
-      "quota": 10.0,
-      "historyDays": 30,
-      "learned": true,
+      "left": 10.0,
       "percentOfLimit": 0,
-      "aboveNormal": false,
-      "overQuota": false
+      "reachedLimit": false,
+      "triedOverLimit": false
     },
     {
       "userId": "USR006",
       "name": "Ananya Roy",
       "hostelBlock": "Hostel Block B",
       "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Ananya",
+      "limit": 10.0,
+      "customLimit": false,
       "todayUsage": 0.0,
-      "mean": 3.1,
-      "stdDev": 1.27,
-      "limit": 6.9,
-      "quota": 10.0,
-      "historyDays": 30,
-      "learned": true,
+      "left": 10.0,
       "percentOfLimit": 0,
-      "aboveNormal": false,
-      "overQuota": false
+      "reachedLimit": false,
+      "triedOverLimit": false
     }
   ]
 };

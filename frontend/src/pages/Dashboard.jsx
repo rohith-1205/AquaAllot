@@ -107,7 +107,7 @@ export const Dashboard = () => {
         </KpiCard>
         <KpiCard title="Open alerts" value={kpis.totalAlertsCount} icon={AlertTriangle} color="bg-rose-50 text-rose-600">
           <span className="text-xs font-bold text-slate-500">
-            {kpis.criticalAlertsCount} critical · {kpis.overUsageToday} over-usage today
+            {kpis.criticalAlertsCount} critical · {kpis.overUsageToday} at daily limit
           </span>
         </KpiCard>
       </div>

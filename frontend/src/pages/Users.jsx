@@ -6,9 +6,10 @@ import { useApp } from '../context/AppContext';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
 import { Modal } from '../components/common/Modal';
+import { DailyLimitEditor } from '../components/users/DailyLimitEditor';
 
 export const Users = () => {
-  const { users, addNewUser } = useApp();
+  const { users, addNewUser, settings } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
   const [hostelFilter, setHostelFilter] = useState('All'); // All | Hostel Block A | Hostel Block B | PG Block C
   const [statusFilter, setStatusFilter] = useState('All'); // All | Active | Warning | Suspended
@@ -72,7 +73,7 @@ export const Users = () => {
         <div>
           <h2 className="text-xl font-bold text-slate-900 font-['Outfit']">Student Directory & Hostel Allocations</h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Segregated list by Student Name, Hostel Block, Water Consumed, and Digital Payments.
+            Set each student's <b className="text-violet-600">daily water limit</b> in the table (default {settings.dailyLimitLiters} L from Settings).
           </p>
         </div>
         <Button
@@ -185,6 +186,7 @@ export const Users = () => {
                 <th>Hostel Block & Room</th>
                 <th>RFID UID Tag</th>
                 <th>Water Used (Today / Monthly)</th>
+                <th>Daily Limit</th>
                 <th>Payments Done</th>
                 <th>Status</th>
                 <th>Actions</th>
@@ -193,7 +195,7 @@ export const Users = () => {
             <tbody>
               {filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-8 text-slate-400">
+                  <td colSpan={9} className="text-center py-8 text-slate-400">
                     No matching students found for selected hostel filter.
                   </td>
                 </tr>
@@ -229,6 +231,9 @@ export const Users = () => {
                         <span className="font-bold text-sky-600 block text-xs">{usr.todayUsage} L today</span>
                         <span className="text-[10px] text-slate-500">{usr.monthlyUsage} L this month</span>
                       </div>
+                    </td>
+                    <td>
+                      <DailyLimitEditor user={usr} compact />
                     </td>
                     <td>
                       <div>

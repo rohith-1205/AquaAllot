@@ -27,12 +27,15 @@ public MQTT broker and talk through it. No tunnel, no changing URLs.
 | **Failed refund** | Retried 3 times, then a *Refund Failed* alert asks the admin to refund it from the Razorpay dashboard. |
 | **Unpaid order** | Expires after 15 minutes. |
 
-## 🚨 Over-usage alerts (admin dashboard)
+## 🚰 Daily water limits (set by the admin)
 
-- Each student's **normal daily use** (average μ and spread σ) is learned from their last 30 days of transactions.
-- When an order would push today's total above **μ + 3σ**, or above the **daily quota** (Settings, default 10 L), the order is
-  still dispensed, the OLED shows a warning, and the admin gets **one alert per student per day**
-  (Dashboard → *Over-usage today*, Alerts page).
+- **Default limit** for every student: **Settings → Daily water limit** (10 L per day).
+- **Personal limit** for one student: **Users page → Daily Limit column** (or the student's page). Type the litres and
+  press 💾; press ↺ to go back to the default. Demo: Sanjay has a personal limit of **3 L**.
+- Before every order the backend checks **used today + this order ≤ limit**. Above the limit (Settings → *When an order goes over the limit*):
+  - **Refuse the order** (default) – OLED shows *DAILY LIMIT · Only 3 L left today* and stays on the 1/2/5 L menu.
+  - **Allow + alert** – water is dispensed, OLED shows *Over daily limit*.
+- Either way the admin gets **one "Daily Limit Exceeded" alert per student per day** (Dashboard → *Daily limits today*, Alerts page).
 - "Today" resets automatically at midnight.
 
 ---
@@ -89,13 +92,13 @@ Open **http://localhost:5173** → login `admin@aquaallot.com` / `admin123` (if 
 | **Dashboard** | Live Wokwi card, KPIs (vs yesterday / last week), **Over-usage today**, hostel blocks today, real charts, recent transactions, open alerts |
 | **Live Station** ⭐ | Connection status, step tracker, water tank, Razorpay payment (opens by itself when PAY is pressed in Wokwi), control panel, live MQTT log |
 | **Dispenser Kiosk** | Phone-style screen: choose student + litres → order goes to the real Wokwi station |
-| **Users** | Students and cards. **Register a new card** – it works in Wokwi immediately |
+| **Users** | Students and cards, **personal daily limits**. **Register a new card** – it works in Wokwi immediately |
 | **New Order** | Admin version of the kiosk (also sends real orders to the station) |
 | **Payments** | Razorpay transactions (charged / refunded), Razorpay refunds with status, CSV export |
-| **Analytics** | Real charts, busiest hour, each student today vs their normal limit and quota |
-| **Alerts** | Over-usage (3-sigma), quota, refunds, leaks, emergency stops – resolve them here |
+| **Analytics** | Real charts, busiest hour, each student today vs their daily limit |
+| **Alerts** | Daily limit, refunds, leaks, emergency stops – resolve them here |
 | **Stations** | `STN-001 · LIVE · WOKWI` is the real simulation; the other two are labelled *Sample* |
-| **Settings** | Water price, daily quota, MQTT info, **Reset demo data** |
+| **Settings** | Water price, default daily limit (+ refuse / allow), MQTT info, **Reset demo data** |
 
 ### The Wokwi board
 
@@ -114,7 +117,7 @@ Open **http://localhost:5173** → login `admin@aquaallot.com` / `admin123` (if 
 |---|---|---|---|
 | 🔵 Blue | 01:02:03:04 | **Rohith** | Normal purchase – pay with Razorpay |
 | 🟢 Green | 11:22:33:44 | **Deepankishor** | Press **PAY in Wokwi** → Razorpay opens on Live Station |
-| 🟡 Yellow | 55:66:77:88 | **Sanjay**, normal ≈ 1.4 L/day | 5 L > 3-sigma limit → **over-usage alert** |
+| 🟡 Yellow | 55:66:77:88 | **Sanjay**, personal limit 3 L/day | 5 L → **refused: only 3 L left today** |
 | 🟠 Key fob | C0:FF:EE:99 | Karthik N – suspended | Access denied (account) |
 | 🔴 Red | AA:BB:CC:DD | – | Access denied (unknown card) |
 | ⚪ NFC tag | 04:11:22:33:44:55:66 | – | Register live on the Users page |
@@ -136,10 +139,11 @@ Keep **Wokwi** and **Live Station** side by side.
 2. The Razorpay checkout **opens on the Live Station page by itself** (OLED: *Pay on dashboard*).
 3. Pay → the valve opens in Wokwi 🎉.
 
-**③ Over-usage alert (Sanjay)**
-1. Tap the **Yellow card**, press **5 L**. OLED shows *! Above normal use*.
-2. Dashboard → *Over-usage today* shows Sanjay in red; **Alerts** has *Unusual Consumption Spike* with μ, σ and the limit.
-3. Pay with Razorpay – the water is still dispensed (the admin decides what to do).
+**③ Daily limit (Sanjay, personal limit 3 L)**
+1. Tap the **Yellow card**, press **5 L**. OLED shows *DAILY LIMIT – Only 3 L left today – Choose less water*.
+2. Dashboard → *Daily limits today* shows Sanjay in red; **Alerts** has *Daily Limit Exceeded*.
+3. Press **2 L** instead → pay with Razorpay → water flows (now 1 L left today).
+4. Change his limit live: **Users → Sanjay → Daily Limit** → type 6 → 💾. Now 5 L would be accepted.
 
 **④ Automatic Razorpay refund**
 1. Rohith again: **5 L**, pay with Razorpay.
@@ -192,8 +196,9 @@ yellow "Backend not reachable" bar.
 | What | Where |
 |---|---|
 | Students, cards, 30-day history | `backend/demo_data.py` (bump `SEED_VERSION`, then `python tools/export_sample_data.py`) |
-| Water price, daily quota | Settings page |
-| Over-usage rule | `usage_profile()` / `check_usage()` in `backend/services.py` |
+| Water price, default daily limit | Settings page |
+| Personal daily limit | Users page (Daily Limit column) |
+| Limit rule | `daily_limit()` / `check_limit()` in `backend/services.py` |
 | Refund timing | `STUCK_ORDER_SECONDS`, `PENDING_ORDER_MINUTES` in `backend/services.py` |
 | Flow speed | `frequency` of the clock generator in `diagram.json` (150 Hz = 20 L/min) |
 
